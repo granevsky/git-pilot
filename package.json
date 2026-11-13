@@ -1,0 +1,168 @@
+{
+  "name": "git-pilot",
+  "displayName": "Git Pilot",
+  "description": "An extensible developer cockpit for GitLab (CE/EE) and GitHub. Phase 1: Issue <-> MR/PR status label sync.",
+  "version": "1.0.0",
+  "publisher": "Granevsky",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/granevsky/git-pilot"
+  },
+  "bugs": {
+    "url": "https://github.com/granevsky/git-pilot/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "gitlab",
+    "github",
+    "labels",
+    "issues",
+    "merge request",
+    "pull request"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:.git",
+    "onStartupFinished"
+  ],
+  "extensionDependencies": [
+    "vscode.git"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Git Pilot sends your API tokens to the host from the repository remote and reads settings from the workspace, so it only runs in trusted workspaces."
+    },
+    "virtualWorkspaces": false
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitPilot.setToken",
+        "title": "Set Personal Access Token",
+        "category": "Git Pilot",
+        "icon": "$(key)"
+      },
+      {
+        "command": "gitPilot.openInBrowser",
+        "title": "Open Issue / MR in Browser",
+        "category": "Git Pilot",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "gitPilot.statusSync.selectStatus",
+        "title": "Status Sync: Select Status",
+        "category": "Git Pilot",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "gitPilot.statusSync.syncNow",
+        "title": "Status Sync: Sync Now",
+        "category": "Git Pilot",
+        "icon": "$(sync)"
+      }
+    ],
+    "configuration": [
+      {
+        "title": "Git Pilot",
+        "properties": {
+          "gitPilot.provider": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "gitlab",
+              "github"
+            ],
+            "enumDescriptions": [
+              "Infer the platform from the git remote host.",
+              "Force GitLab (use for self-hosted GitLab instances).",
+              "Force GitHub (use for GitHub Enterprise Server)."
+            ],
+            "default": "auto",
+            "description": "Which hosting platform the repository lives on."
+          },
+          "gitPilot.instanceUrl": {
+            "type": "string",
+            "default": "",
+            "markdownDescription": "Optional base URL override for self-hosted GitLab or GitHub Enterprise, e.g. `https://gitlab.company.com`. Leave empty to derive it from the `origin` remote.",
+            "scope": "machine-overridable"
+          },
+          "gitPilot.branchIssueRegex": {
+            "type": "string",
+            "default": "(?:^|/|-)(\\d+)(?:-|_|$)",
+            "markdownDescription": "Regular expression applied to the current branch name. The **first capturing group** must contain the Issue IID / number (e.g. `142-fix-auth`, `feat/142-login`)."
+          },
+          "gitPilot.allowInsecureHttp": {
+            "type": "boolean",
+            "default": false,
+            "scope": "machine",
+            "markdownDescription": "Allow sending API tokens over plain `http://` (e.g. an internal GitLab without TLS). **Not recommended:** anyone on the network path can read the token. Workspace settings cannot enable this."
+          }
+        }
+      },
+      {
+        "title": "Status Sync",
+        "properties": {
+          "gitPilot.statusSync.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the Status Sync module (Issue <-> MR/PR status label synchronization)."
+          },
+          "gitPilot.statusSync.labelPrefix": {
+            "type": "string",
+            "default": "status:",
+            "markdownDescription": "Prefix identifying status labels. Use `status:` for regular labels or `status::` for GitLab Premium scoped labels. `:` and `::` variants are treated as equivalent when stripping old statuses."
+          },
+          "gitPilot.statusSync.sourceOfTruth": {
+            "type": "string",
+            "enum": [
+              "mr",
+              "issue",
+              "prompt"
+            ],
+            "enumDescriptions": [
+              "The open MR/PR status silently overwrites the Issue status on divergence.",
+              "The Issue status silently overwrites open MR/PR statuses on divergence.",
+              "Highlight the conflict in the status bar and ask which status to apply."
+            ],
+            "default": "mr",
+            "description": "Which side wins when the Issue and its MR/PR have different status labels."
+          },
+          "gitPilot.statusSync.autoSyncInterval": {
+            "type": "number",
+            "default": 120,
+            "minimum": 0,
+            "description": "Polling interval in seconds for automatic synchronization (0 disables polling)."
+          }
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "pnpm run check-types && node esbuild.js",
+    "check-types": "tsc --noEmit",
+    "watch": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "pnpm run check-types && node esbuild.js --production",
+    "vscode:prepublish": "pnpm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "~1.85.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.6.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.5.2+sha512.da9dc28cd3ff40d0592188235ab25d3202add8a207afbedc682220e4a0029ffbff4562102b9e6e46b4e3f9e8bd53e6d05de48544b0c57d4b0179e22c76d1199b"
+}
