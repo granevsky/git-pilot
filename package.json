@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "publisher": "Granevsky",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/granevsky/git-pilot"
@@ -63,10 +64,16 @@
         "icon": "$(tag)"
       },
       {
-        "command": "gitPilot.statusSync.syncNow",
-        "title": "Issue & MR: Sync Now",
+        "command": "gitPilot.statusSync.syncFromMr",
+        "title": "Issue & MR: Sync Labels from MR / PR…",
         "category": "Git Pilot",
         "icon": "$(sync)"
+      },
+      {
+        "command": "gitPilot.statusSync.refresh",
+        "title": "Issue & MR: Refresh",
+        "category": "Git Pilot",
+        "icon": "$(refresh)"
       },
       {
         "command": "gitPilot.openItem",
@@ -183,9 +190,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "gitPilot.statusSync.syncNow",
+          "command": "gitPilot.statusSync.syncFromMr",
           "when": "view == gitPilot.statusSync",
           "group": "navigation@3"
+        },
+        {
+          "command": "gitPilot.statusSync.refresh",
+          "when": "view == gitPilot.statusSync",
+          "group": "navigation@4"
         },
         {
           "command": "gitPilot.labels.refresh",
@@ -204,6 +216,16 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "gitPilot.statusSync.syncFromMr",
+          "when": "view == gitPilot.statusSync && viewItem =~ /outOfSync/",
+          "group": "inline@0"
+        },
+        {
+          "command": "gitPilot.statusSync.syncFromMr",
+          "when": "view == gitPilot.statusSync && viewItem =~ /outOfSync/",
+          "group": "1_status@0"
+        },
         {
           "command": "gitPilot.statusSync.selectStatus",
           "when": "view == gitPilot.statusSync && viewItem =~ /summary|entityStatus/",
@@ -350,43 +372,28 @@
         }
       },
       {
-        "title": "Issue & MR / Status Sync",
+        "title": "Issue & MR",
         "properties": {
-          "gitPilot.statusSync.enabled": {
-            "type": "boolean",
-            "default": true,
-            "description": "Automatic status synchronization (Issue <-> MR/PR status labels) and the status bar item. Changing the status and labels by hand in the sidebar works regardless."
-          },
           "gitPilot.statusSync.showSection": {
             "type": "boolean",
             "default": true,
             "markdownDescription": "Show the **Issue & MR** section in the Git Pilot sidebar. Ignored while it is the only section (i.e. `gitPilot.labels.enabled` is off): then it is always shown."
+          },
+          "gitPilot.statusSync.showStatusBar": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Issue / MR status item in the status bar."
           },
           "gitPilot.statusSync.labelPrefix": {
             "type": "string",
             "default": "status:",
             "markdownDescription": "Prefix identifying status labels. Use `status:` for regular labels or `status::` for GitLab Premium scoped labels. `:` and `::` variants are treated as equivalent when stripping old statuses."
           },
-          "gitPilot.statusSync.sourceOfTruth": {
-            "type": "string",
-            "enum": [
-              "mr",
-              "issue",
-              "prompt"
-            ],
-            "enumDescriptions": [
-              "The open MR/PR status silently overwrites the Issue status on divergence.",
-              "The Issue status silently overwrites open MR/PR statuses on divergence.",
-              "Highlight the conflict in the status bar and ask which status to apply."
-            ],
-            "default": "mr",
-            "description": "Which side wins when the Issue and its MR/PR have different status labels."
-          },
-          "gitPilot.statusSync.autoSyncInterval": {
+          "gitPilot.statusSync.refreshInterval": {
             "type": "number",
             "default": 120,
             "minimum": 0,
-            "description": "Polling interval in seconds for automatic synchronization (0 disables polling)."
+            "markdownDescription": "Interval in seconds for refreshing the Issue / MR data in the background while the window is focused (`0` disables it; minimum 10). Read-only: labels are changed only by your own actions, e.g. **Sync Labels from MR / PR…**, which asks for confirmation."
           }
         }
       },

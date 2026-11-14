@@ -1,4 +1,4 @@
-import type { SettingsManager, SourceOfTruth } from '../config/settings';
+import type { SettingsManager } from '../config/settings';
 import type { Logger } from '../logger';
 import type { EntityKind, EntityRef, GitPlatformProvider, Platform, ProjectLabel, SyncState, User } from '../types';
 
@@ -72,25 +72,6 @@ export function sameLabelSet(a: readonly string[], b: readonly string[]): boolea
   }
   const set = new Set(a.map((l) => l.toLowerCase()));
   return b.every((l) => set.has(l.toLowerCase()));
-}
-
-/**
- * Decides which status should win when the Issue and MR side diverge.
- * Returns `null` when there is a genuine conflict in `prompt` mode or no status exists anywhere.
- * A side without any status label never "wins" against one that has a status — gaps are filled.
- */
-export function resolveEffectiveStatus(issueStatus: string | null, mrStatus: string | null, mode: SourceOfTruth): string | null {
-  switch (mode) {
-    case 'mr':
-      return mrStatus ?? issueStatus;
-    case 'issue':
-      return issueStatus ?? mrStatus;
-    case 'prompt':
-      if (issueStatus && mrStatus && !sameStatus(issueStatus, mrStatus)) {
-        return null;
-      }
-      return issueStatus ?? mrStatus;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -224,32 +205,30 @@ export abstract class BaseProvider implements GitPlatformProvider {
     return result;
   }
 
-  /** Assembles a SyncState, sorting MRs newest-first and computing `isSynced` / `effectiveStatus`. */
+  /** Assembles a SyncState, sorting MRs newest-first. */
   protected buildSyncState(issue: EntityRef, mergeRequests: EntityRef[], availableStatusLabels: string[]): SyncState {
-    const mrs = [...mergeRequests].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-    const all = [issue, ...mrs];
-    const isSynced = all.every((e) => sameStatus(e.statusLabel, issue.statusLabel));
-    // The MR side is represented by the most recently updated open MR that carries a status.
-    const mrStatus = mrs.find((m) => m.statusLabel)?.statusLabel ?? null;
-    const effectiveStatus = isSynced
-      ? issue.statusLabel
-      : resolveEffectiveStatus(issue.statusLabel, mrStatus, this.settings.statusSync.sourceOfTruth);
-
+    const time = (e: EntityRef) => Date.parse(e.updatedAt) || 0;
     return {
       platform: this.platform,
       host: this.host,
       projectPath: this.projectPath,
       issue,
-      mergeRequests: mrs,
+      mergeRequests: [...mergeRequests].sort((a, b) => time(b) - time(a)),
       availableStatusLabels,
-      isSynced,
-      effectiveStatus,
     };
   }
 
-  /** Applies `newStatusLabel` to the issue and every open MR/PR in parallel, skipping no-op writes. */
-  async setUnifiedStatus(state: SyncState, newStatusLabel: string): Promise<SyncState> {
+  /**
+   * Applies `statusLabel` to the issue and every open MR/PR in parallel, skipping no-op writes.
+   * Only status labels that exist in the project are accepted: the platforms would silently create
+   * an unknown label on write, and Git Pilot never creates labels.
+   */
+  async setUnifiedStatus(state: SyncState, statusLabel: string): Promise<SyncState> {
     const prefix = this.labelPrefix;
+    const newStatusLabel = state.availableStatusLabels.find((l) => sameStatus(l, statusLabel));
+    if (!newStatusLabel) {
+      throw new ProviderError(`Status label "${statusLabel}" does not exist in ${this.projectPath}; Git Pilot never creates labels`, 'notFound');
+    }
     const apply = async (entity: EntityRef, kind: EntityKind): Promise<EntityRef> => {
       const next = computeUpdatedLabels(entity.allLabels, newStatusLabel, prefix);
       if (sameLabelSet(next, entity.allLabels)) {
@@ -263,11 +242,7 @@ export abstract class BaseProvider implements GitPlatformProvider {
       apply(state.issue, 'issue'),
       ...state.mergeRequests.map((mr) => apply(mr, 'mr')),
     ]);
-
-    const available = state.availableStatusLabels.some((l) => sameStatus(l, newStatusLabel))
-      ? state.availableStatusLabels
-      : [...state.availableStatusLabels, newStatusLabel];
-    return this.buildSyncState(issue, mrs, available);
+    return this.buildSyncState(issue, mrs, state.availableStatusLabels);
   }
 
   async editLabels(entity: EntityRef, kind: EntityKind, add: readonly string[], remove: readonly string[]): Promise<EntityRef> {
@@ -342,14 +317,16 @@ export abstract class BaseProvider implements GitPlatformProvider {
       try {
         const url = new URL(raw);
         if ((url.protocol === 'https:' || url.protocol === 'http:') && url.host === base.host && !url.username && !url.password) {
-          // Parentheses would break Markdown link syntax in tooltips.
-          return url.href.replace(/\(/g, '%28').replace(/\)/g, '%29');
+          return markdownSafeHref(url.href);
         }
       } catch {
         // fall through
       }
     }
-    return `${this.webBaseUrl}/${fallbackPath}`;
+    // The fallback is built from the remote-derived project path, so it is untrusted too: every
+    // segment is percent-encoded (no `?`, `#`, `//` or host change) before it reaches a tooltip.
+    const path = fallbackPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+    return markdownSafeHref(new URL(`${this.webBaseUrl}/${path}`).href);
   }
 
   protected async request<T>(method: string, pathOrUrl: string, opts: RequestOptions = {}): Promise<HttpResponse<T>> {
@@ -501,6 +478,11 @@ export function labelDiff(current: readonly string[], next: readonly string[]): 
     add: next.filter((l) => !cur.has(l.toLowerCase())),
     remove: current.filter((l) => !nxt.has(l.toLowerCase())),
   };
+}
+
+/** Parentheses (left unescaped by URL serialization) would break Markdown link syntax in tooltips. */
+function markdownSafeHref(href: string): string {
+  return href.replace(/\(/g, '%28').replace(/\)/g, '%29');
 }
 
 function redact(url: string): string {

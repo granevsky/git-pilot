@@ -61,8 +61,8 @@ export interface EntityRef {
   /** ISO timestamp of the last update; used to determine the "latest" MR/PR. */
   updatedAt: string;
   /**
-   * Provider-specific project reference the entity belongs to (GitLab project id,
-   * GitHub `owner/repo`). Needed because related MRs may live in another project (forks).
+   * Provider-specific project reference (GitLab project id, GitHub `owner/repo`). Only entities of
+   * the current project are ever returned: MRs/PRs that live in other projects are dropped.
    */
   projectRef?: string;
 }
@@ -78,8 +78,6 @@ export interface SyncState {
   /** Open MRs/PRs linked to the issue or branch, most recently updated first. */
   mergeRequests: EntityRef[];
   availableStatusLabels: string[];
-  isSynced: boolean;
-  effectiveStatus: string | null;
 }
 
 /** A label defined in the project (and, on GitLab, its ancestor groups). */

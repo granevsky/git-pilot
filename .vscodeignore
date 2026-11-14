@@ -1,0 +1,8 @@
+# Allow-list: the .vsix contains only the bundle, the icon, docs and the manifest.
+# Package with `vsce package --no-dependencies` (zero runtime dependencies; pnpm layout).
+**
+!dist/extension.js
+!media/**
+!README.md
+!LICENSE.md
+!package.json

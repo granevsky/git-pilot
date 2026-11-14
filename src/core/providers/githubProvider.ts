@@ -38,6 +38,7 @@ interface GhPull {
 
 interface GqlClosingPrs {
   repository: {
+    id: string;
     issue: {
       closedByPullRequestsReferences: {
         nodes: Array<{
@@ -46,7 +47,7 @@ interface GqlClosingPrs {
           state: 'OPEN' | 'CLOSED' | 'MERGED';
           url: string;
           updatedAt: string;
-          repository: { nameWithOwner: string };
+          repository: { id: string } | null;
           labels: { nodes: GhLabel[] } | null;
         } | null>;
       } | null;
@@ -57,6 +58,7 @@ interface GqlClosingPrs {
 const CLOSING_PRS_QUERY = `
 query GitPilotClosingPrs($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
+    id
     issue(number: $number) {
       closedByPullRequestsReferences(first: 20, includeClosedPrs: false) {
         nodes {
@@ -65,7 +67,7 @@ query GitPilotClosingPrs($owner: String!, $name: String!, $number: Int!) {
           state
           url
           updatedAt
-          repository { nameWithOwner }
+          repository { id }
           labels(first: 100) { nodes { name } }
         }
       }
@@ -147,17 +149,17 @@ export class GitHubProvider extends BaseProvider {
       this.fetchStatusLabels(),
     ]);
 
-    const unique = new Map<string, EntityRef>();
+    // byBranch comes from this repository's own /pulls endpoint; closing PRs are already restricted
+    // to this repository in fetchClosingPullRequests.
+    const unique = new Map<number, EntityRef>();
     for (const pr of byBranch) {
-      if (pr.state === 'open') {
-        const entity = this.pullToEntity(pr);
-        unique.set(`${entity.projectRef}#${entity.id}`, entity);
+      if (pr?.state === 'open' && Number.isSafeInteger(pr.number)) {
+        unique.set(pr.number, this.pullToEntity(pr));
       }
     }
     for (const entity of closing) {
-      const key = `${entity.projectRef}#${entity.id}`;
-      if (!unique.has(key)) {
-        unique.set(key, entity);
+      if (!unique.has(entity.id)) {
+        unique.set(entity.id, entity);
       }
     }
 
@@ -180,17 +182,19 @@ export class GitHubProvider extends BaseProvider {
   }
 
   protected async writeLabels(entity: EntityRef, _kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {
-    // PRs share the issue labels endpoint on GitHub. projectRef comes from the server, so only a
-    // strict `owner/repo` shape may enter the path.
-    const ref = entity.projectRef;
-    const repo = ref && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(ref) && !ref.split('/').some((s) => s === '.' || s === '..')
-      ? ref.split('/').map(encodeURIComponent).join('/')
-      : this.repoRef;
-    const base = `/repos/${repo}/issues/${entity.id}/labels`;
+    // PRs share the issue labels endpoint on GitHub. Writes only ever go to the current repository
+    // (PRs of other repositories are filtered out in getSyncState).
+    const base = `/repos/${this.repoRef}/issues/${entity.id}/labels`;
     const toNames = (data: unknown) => (Array.isArray(data) ? stringLabels(data.map((l: GhLabel | null) => l?.name)) : null);
 
     // Minimal diff instead of PUT (replace-all), so concurrent edits to other labels survive.
     const { add, remove } = labelDiff(currentLabels, nextLabels);
+    // A label name becomes a path segment. URL parsing resolves "." / ".." as dot segments (encoding
+    // can't prevent it), which would turn `DELETE …/labels/.` into `DELETE …/labels` = remove ALL labels.
+    const unsafe = remove.find((name) => name === '.' || name === '..');
+    if (unsafe !== undefined) {
+      throw new ProviderError(`Cannot remove the label "${unsafe}" through the GitHub REST API (its name is a path dot segment)`, 'invalidResponse');
+    }
     let labels: string[] | null = null;
     for (const name of remove) {
       try {
@@ -218,20 +222,24 @@ export class GitHubProvider extends BaseProvider {
       name: this.repoName,
       number: issueNumber,
     });
+    const repoId = data.repository?.id;
     const nodes = data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? [];
     return nodes
-      .filter((n): n is NonNullable<typeof n> => !!n && n.state === 'OPEN')
+      // Only PRs of this repository (compared by node id, so renames don't matter): a PR elsewhere can
+      // reference the issue too, and must neither drive the status nor receive writes.
+      .filter((n): n is NonNullable<typeof n> => !!n && n.state === 'OPEN' && !!repoId && n.repository?.id === repoId)
+      .filter((n) => Number.isSafeInteger(n.number))
       .map((n) => {
         const labels = stringLabels((n.labels?.nodes ?? []).map((l) => l?.name));
         return {
           id: n.number,
           title: String(n.title ?? ''),
           state: 'opened' as const,
-          webUrl: this.safeWebUrl(n.url, `${n.repository?.nameWithOwner ?? this.projectPath}/pull/${n.number}`),
+          webUrl: this.safeWebUrl(n.url, `${this.projectPath}/pull/${n.number}`),
           allLabels: labels,
           statusLabel: this.toStatus(labels),
-          updatedAt: n.updatedAt,
-          projectRef: n.repository.nameWithOwner,
+          updatedAt: String(n.updatedAt ?? ''),
+          projectRef: this.projectPath,
         };
       });
   }
@@ -272,8 +280,8 @@ export class GitHubProvider extends BaseProvider {
       webUrl: this.safeWebUrl(raw.html_url, `${this.projectPath}/pull/${raw.number}`),
       allLabels: labels,
       statusLabel: this.toStatus(labels),
-      updatedAt: raw.updated_at,
-      projectRef: raw.base?.repo?.full_name ?? this.projectPath,
+      updatedAt: String(raw.updated_at ?? ''),
+      projectRef: this.projectPath,
     };
   }
 }

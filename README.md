@@ -43,8 +43,8 @@ The **Git Pilot** icon in the activity bar opens a sidebar made of sections. Eac
 The main section — the current branch's Issue and its open MRs/PRs. It is always shown; `gitPilot.statusSync.showSection` can hide it only while another section (Labels) is enabled.
 
 ```text
-ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
- ✓ Status: doing — in sync · 12:03     [🏷]
+ISSUE & MR · #3                 [🏷 Change Status] [+ Add Labels] [⇅ Sync] [⟳]
+ ⚠ Labels differ — from MR !5          [⇅] [🏷]
  ▾ Issue #3  Add a sidebar             [+] [↗]
      status: doing    status           [🏷]
      app:web          not on MR !5     [→] [⇄] [✕]
@@ -55,7 +55,8 @@ ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
  ▸ Statuses (4)                        ← ✓ applies a status
 ```
 
-- **Status** stays one click away: the summary row, the status label rows, the toolbar and the status bar item all open *Change Status*. In a conflict the summary offers *Use Issue status* / *Use MR status* / *Choose another status…*. Status labels are changed only this way — on the Issue and all open MRs/PRs at once.
+- **Status** stays one click away: the summary row, the status label rows, the toolbar and the status bar item all open *Change Status*. Status labels are changed only this way — on the Issue and all open MRs/PRs at once — or by a confirmed *Sync from MR/PR* (see [Status Sync](#en-status-sync)).
+- **Summary row.** When the Issue's labels differ from the MR/PR, the summary turns into *Status differs* / *Labels differ*, lists what differs per item and offers **`⇅` Sync from MR/PR…**. When everything matches it shows *Status: … — in sync*.
 - **`+` Add Labels** — on an Issue/MR row adds to that item; on the toolbar it first asks where (the Issue, one MR/PR, or everywhere). Only labels that already exist in the project are offered; Git Pilot never creates or deletes project labels.
 - **Groups are exclusive.** Labels of one group (`app:*`, see [Labels](#en-labels)) are mutually exclusive on an Issue/MR, like scoped labels: picking `app:api` replaces `app:web`, and the picker allows one label per group. Labels without a group (**Other**) can be added several at a time.
 - **`⇄` Replace** (group labels only) — swaps the label for another one of the same group.
@@ -78,7 +79,7 @@ Item actions: `+` *Add Labels…* while the label is missing on the Issue or an 
 
 ### Status Sync
 
-Status Sync keeps **status labels** (e.g. `status: todo`, `status::qa-passed`) the same on an **Issue** and its open **Merge Requests** (GitLab) or **Pull Requests** (GitHub). It syncs automatically while `gitPilot.statusSync.enabled` is on (this setting also controls the status bar item); changing the status by hand in the sidebar works either way.
+Status Sync shows whether the **labels** of an **Issue** match its open **Merge Requests** (GitLab) or **Pull Requests** (GitHub) and syncs them **only when you confirm**. Nothing is ever written automatically.
 
 #### How it works
 
@@ -87,25 +88,30 @@ Status Sync keeps **status labels** (e.g. `status: todo`, `status::qa-passed`) t
 2. It fetches the issue, its open MRs/PRs, and the project's status labels:
    - **GitLab:** related merge requests **plus** open MRs whose source branch is the current branch.
    - **GitHub:** open PRs whose head is the current branch **plus** PRs linked as "closing" the issue (GraphQL `closedByPullRequestsReferences`).
-3. If the statuses differ, it reconciles them according to `gitPilot.statusSync.sourceOfTruth`.
-4. The status bar shows the result:
+   - Only MRs/PRs of **the same project** are used. MRs/PRs in other projects that merely mention the issue are ignored: anyone can create those, so they must not influence your issue or receive writes made with your token.
+3. **The MR/PR is the source of truth:** the most recently updated open MR/PR that has a status label (or, if none has one, the most recently updated open MR/PR).
+4. If the Issue (or another open MR/PR) differs from it, the sidebar summary and the status bar show it. **Sync Labels from MR / PR…** (`⇅` in the section toolbar, the summary row, the status bar item or the status picker) re-reads everything and opens a confirmation that lists every change, with two options:
+   - **Sync Statuses** — puts the MR/PR's status label on the Issue and the other open MRs/PRs; other labels stay.
+   - **Sync All Labels** — makes the labels of the Issue and the other open MRs/PRs **exactly** match the MR/PR, including removing labels it doesn't have.
+
+   Only the changes shown in the dialog are written, as minimal diffs. If the branch changed meanwhile, the sync is cancelled.
 
 | State | Status bar |
 | --- | --- |
 | No token | `$(key) Git Pilot: Set Token` |
-| Syncing | `$(sync~spin) Git Pilot: #142...` |
-| Synced | `$(tag) #142: status: qa-passed (MR !89)` |
-| Conflict (`prompt` mode) | `$(warning) #142: todo ≠ MR: qa-passed` (warning background) |
+| Loading | `$(sync~spin) Git Pilot: #142...` |
+| In sync | `$(tag) #142: qa-passed (MR !89)` (`$(diff)` appended when only non-status labels differ) |
+| Status differs | `$(warning) #142: todo ≠ MR !89: qa-passed` (warning background; click to sync) |
 
-Click the status bar item to pick a status. The QuickPick lists every project label that starts with your prefix (the current one is marked with `$(check)`). It also has quick actions: **Force Sync Now**, **Open Issue/MR in Browser** and **Update API Token**. Only status labels that exist in the project are listed — create new ones on GitLab/GitHub.
+Click the status bar item to pick a status (or, when the status differs, to sync). The QuickPick lists every project label that starts with your prefix (the current one is marked with `$(check)`). It also has quick actions: **Sync Labels from MR/PR…** (when something differs), **Refresh**, **Open Issue/MR in Browser** and **Update API Token**. Only status labels that exist in the project are listed or applied — create new ones on GitLab/GitHub.
 
-#### Sync triggers
+#### Refresh triggers (read-only)
 
 - Extension activation
 - Branch or repository switch
 - The VS Code window regaining focus (at most once every 30 s)
-- Polling every `autoSyncInterval` seconds (only with auto-sync on; paused while the window is in the background)
-- **Git Pilot: Issue & MR: Sync Now**
+- Every `gitPilot.statusSync.refreshInterval` seconds (paused while the window is in the background)
+- **Git Pilot: Issue & MR: Refresh**
 
 #### Mutually exclusive statuses everywhere
 
@@ -125,25 +131,12 @@ Updates are sent as diffs (GitLab `add_labels` / `remove_labels`; GitHub add / r
 | `gitPilot.instanceUrl` | `""` | Base URL override for self-hosted GitLab / GitHub Enterprise, e.g. `https://gitlab.company.com`. Instances served under a sub-path (e.g. `https://host/gitlab`) are supported. |
 | `gitPilot.allowInsecureHttp` | `false` | User-level only. Allows sending tokens over plain `http://` (only with an explicit `http://` `instanceUrl`). Not recommended. |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Regex whose **first capturing group** is the issue IID/number. |
-| `gitPilot.statusSync.enabled` | `true` | Automatic status sync and the status bar item. Manual status / label changes in the sidebar work regardless. |
 | `gitPilot.statusSync.showSection` | `true` | Shows the *Issue & MR* sidebar section. Ignored (always shown) while it is the only section, i.e. `gitPilot.labels.enabled` is off. |
+| `gitPilot.statusSync.showStatusBar` | `true` | Shows the Issue / MR status item in the status bar. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | Use `status:` for regular labels or `status::` for GitLab scoped labels. |
-| `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Which side wins when statuses differ (see below). |
-| `gitPilot.statusSync.autoSyncInterval` | `120` | Polling interval in seconds. `0` turns polling off; the minimum is 10. |
+| `gitPilot.statusSync.refreshInterval` | `120` | Background refresh interval in seconds (read-only). `0` turns it off; the minimum is 10. |
 | `gitPilot.labels.enabled` | `true` | Shows the Labels section (project label catalog) in the sidebar. |
 | `gitPilot.labels.groups` | `[]` | Grouping masks for *All labels*, e.g. `["status:*", "app:*"]` (`*` any characters, `?` one; `:` also matches `::`). Empty = group by the prefix before `:` / `::`. Labels of one group are mutually exclusive on an Issue/MR; unmatched labels go to **Other** and can be combined. |
-
-#### Source of truth
-
-| Value | Behavior when the issue and the latest open MR/PR differ |
-| --- | --- |
-| `mr` | The MR/PR status silently overwrites the issue (and any other open MRs). |
-| `issue` | The issue status silently overwrites all open MRs/PRs. |
-| `prompt` | The status bar turns yellow and Git Pilot asks you which status to apply. You're asked once per distinct conflict. |
-
-*"The latest MR"* means the most recently updated open MR/PR that has a status label.
-
-In every mode, a side with **no status** is simply filled in from the side that has one. For example, a new MR with no status label gets the issue's status. This is never treated as a conflict.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -152,6 +145,8 @@ In every mode, a side with **no status** is simply filled in from the side that 
 ### Authentication
 
 Run **Git Pilot: Set Personal Access Token** (or click `$(key) Git Pilot: Set Token`). Git Pilot stores one token per host in VS Code's `SecretStorage`, which is backed by the OS keychain. The token is never written to settings. Once it's stored, Git Pilot checks it against the API and shows the account it authenticated as.
+
+The keychain is the macOS Keychain, the Windows Credential Manager, or on Linux a Secret Service keyring (GNOME Keyring, KWallet). If VS Code cannot reach it — typically a Linux setup without an installed or unlocked keyring — Git Pilot says so instead of failing silently; fix the keyring (or start VS Code with a `--password-store` option, see *Troubleshooting keychain issues* in the VS Code docs). With Remote-SSH / WSL / Dev Containers the token stays in the keychain of your local machine.
 
 The input box has a button that opens the token-creation page with the right scopes already selected: the GitLab personal token page with `api`, or the GitHub **classic** token page with `repo`. To remove a stored token, submit the input box empty.
 
@@ -175,7 +170,7 @@ The input box has a button that opens the token-creation page with the right sco
 | Read the issue | `GET /projects/:id/issues/:iid` | `GET /repos/:owner/:repo/issues/:n` |
 | Find linked MRs/PRs | `GET …/issues/:iid/related_merge_requests`, `GET …/merge_requests?source_branch=` | `GET /repos/…/pulls?head=`, GraphQL `closedByPullRequestsReferences` |
 | List status labels | `GET /projects/:id/labels` | `GET /repos/…/labels` |
-| **Change the status** | `PUT /projects/:id/issues/:iid`, `PUT /projects/:id/merge_requests/:iid` | `PUT /repos/…/issues/:n/labels` (also used for PRs) |
+| **Change the status / labels** | `PUT /projects/:id/issues/:iid`, `PUT /projects/:id/merge_requests/:iid` (`add_labels` / `remove_labels`) | `POST` / `DELETE /repos/…/issues/:n/labels` (also used for PRs) |
 
 Git Pilot never reads repository code, pushes, deletes anything, or touches CI, settings or members. GitLab tokens and classic GitHub tokens have no narrower scope that still allows editing labels, which is why `api` / `repo` are needed.
 
@@ -208,7 +203,7 @@ Git Pilot never reads repository code, pushes, deletes anything, or touches CI, 
 
 **In the repository** you need at least the **Triage** role, which is the minimum role that can apply labels. GitHub Enterprise Server works the same way. Use a classic token if your GitHub Enterprise Server version doesn't support fine-grained tokens.
 
-**Creating new labels.** If you type a new status in the picker, the platform creates the label. That requires permission to manage labels in the project: Reporter/Planner or higher on GitLab, **Write** on GitHub.
+**No label creation.** Git Pilot only applies labels that already exist in the project and never creates or deletes project labels, so no label-management permission is needed.
 
 **Checking the token.** After you save it, Git Pilot shows *"authenticated as @user"*. This only confirms the token is **valid** (`GET /user`). It doesn't check write access. Write access is checked the first time the status changes. If something is missing, the status bar tells you:
 
@@ -231,7 +226,8 @@ A cloned repository is untrusted input: it controls its remote URL, its branch n
 - **Origin pinning:** a token is only ever sent to the API origin of the host it was stored for. Absolute URLs from the server (pagination `Link` headers, redirects) pointing anywhere else are refused.
 - **Manual redirects:** redirects are followed only within that same origin. This matters because `fetch` would otherwise forward GitLab's `PRIVATE-TOKEN` header to any host.
 - **HTTPS only:** an `http://` remote never downgrades the API to plain HTTP. Sending a token over HTTP requires `gitPilot.allowInsecureHttp`. That setting is machine-scoped and read only from your user settings, so a workspace cannot enable it.
-- **Untrusted server data:** links from the API are opened or rendered only if they are `http(s)` links on the instance's own host. `openExternal` refuses any other scheme. Titles and labels are escaped in tooltips, and IDs and project references are validated before they are used in API paths.
+- **Untrusted server data:** links from the API are opened or rendered only if they are `http(s)` links on the instance's own host. `openExternal` refuses any other scheme. Titles and labels are escaped in tooltips, IDs are validated before they are used in API paths, and remote URLs with malformed escapes or `.` / `..` path segments are ignored. GitHub labels named `.` / `..` are never put into a request path (URL parsing would turn them into a different request).
+- **No automatic writes, same project only:** labels are written only on your explicit action; syncing from an MR/PR always asks for confirmation and lists the changes. MRs/PRs from other projects that mention your issue are ignored, and writes go only to the current project. Status labels that don't exist in the project are refused (the platforms would silently create them).
 - **Limits:** the branch regex is limited to 300 characters and branch names to 255 (ReDoS). Responses are limited to 10 MB, requests time out after 20 s, and there are at most 10 pages per listing.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
@@ -246,7 +242,8 @@ A cloned repository is untrusted input: it controls its remote URL, its branch n
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 | Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Issue & MR: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Issue & MR: Sync Labels from MR / PR… | `gitPilot.statusSync.syncFromMr` |
+| Git Pilot: Issue & MR: Refresh | `gitPilot.statusSync.refresh` |
 | Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
 
 Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. They act only on tree items created by Git Pilot.
@@ -281,7 +278,7 @@ src/
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
     ├── index.ts               Module list (add new modules here)
-    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
+    ├── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
     └── labels/                index.ts · labelsTree.ts
 ```
 
@@ -319,12 +316,14 @@ Requirements: Node.js 18+, pnpm, and VS Code 1.85 or later.
 pnpm install
 pnpm run compile      # type-check + bundle to dist/extension.js
 pnpm run watch        # esbuild watch mode
-pnpm run package      # minified production bundle
+pnpm run package      # minified production bundle (clears dist/ first)
 ```
 
 Press **F5** ("Run Git Pilot") to launch an Extension Development Host. This runs the `watch` task: esbuild plus `tsc --noEmit` in watch mode. Both problem matchers are built in (an inline esbuild matcher in `.vscode/tasks.json` and the standard `$tsc-watch`), so no extra extensions are needed. "Run Git Pilot (one-off build)" does a single `pnpm run compile` instead of starting watchers.
 
 The runtime has **zero dependencies**. All REST and GraphQL calls use Node's built-in `fetch`.
+
+**Packaging.** `.vscodeignore` is an allow-list (`dist/extension.js`, `media/`, `README.md`, `LICENSE.md`, `package.json`). Package with `vsce package --no-dependencies` (pnpm layout, no runtime dependencies) and check the contents with `vsce ls --no-dependencies` before publishing.
 
 <sub>[↑ Contents](#en) · [Русский](#ru) · [↑ Top](#top)</sub>
 
@@ -366,8 +365,8 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 Главный раздел — задача текущей ветки и её открытые MR/PR. Показывается всегда; настройка `gitPilot.statusSync.showSection` может скрыть его, только пока включён другой раздел (Labels).
 
 ```text
-ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
- ✓ Status: doing — in sync · 12:03     [🏷]
+ISSUE & MR · #3                 [🏷 Change Status] [+ Add Labels] [⇅ Sync] [⟳]
+ ⚠ Labels differ — from MR !5          [⇅] [🏷]
  ▾ Issue #3  Add a sidebar             [+] [↗]
      status: doing    status           [🏷]
      app:web          not on MR !5     [→] [⇄] [✕]
@@ -378,7 +377,8 @@ ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
  ▸ Statuses (4)                        ← ✓ применяет статус
 ```
 
-- **Статус** всегда в один клик: строка-сводка, строки статусных меток, кнопка на панели раздела и элемент строки состояния открывают *Change Status*. При конфликте в сводке есть *Use Issue status* / *Use MR status* / *Choose another status…*. Метки статуса меняются только так — сразу у задачи и всех открытых MR/PR.
+- **Статус** всегда в один клик: строка-сводка, строки статусных меток, кнопка на панели раздела и элемент строки состояния открывают *Change Status*. Метки статуса меняются только так — сразу у задачи и всех открытых MR/PR — или подтверждённой синхронизацией *Sync from MR/PR* (см. [Status Sync](#ru-status-sync)).
+- **Строка-сводка.** Если метки задачи расходятся с MR/PR, сводка превращается в *Status differs* / *Labels differ*, показывает расхождения по каждому элементу и предлагает **`⇅` Sync from MR/PR…**. Если всё совпадает — *Status: … — in sync*.
 - **`+` Add Labels** — на строке задачи/MR добавляет метки ей; на панели раздела сначала спрашивает, куда (задача, один MR/PR или везде). Предлагаются только метки, которые уже есть в проекте; Git Pilot не создаёт и не удаляет метки проекта.
 - **Группы взаимоисключающие.** Метки одной группы (`app:*`, см. [Labels](#ru-labels)) у задачи/MR могут быть только в одном экземпляре, как scoped labels: выбор `app:api` заменяет `app:web`, а в списке выбора можно отметить одну метку на группу. Метки без группы (**Other**) можно добавлять по несколько.
 - **`⇄` Replace** (только для меток из группы) — заменяет метку другой из той же группы.
@@ -401,7 +401,7 @@ ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
 
 ### Status Sync
 
-Status Sync поддерживает одинаковые **метки статуса** (например, `status: todo`, `status::qa-passed`) у **задачи (Issue)** и её открытых **Merge Request** (GitLab) или **Pull Request** (GitHub). Синхронизация идёт автоматически, пока включена `gitPilot.statusSync.enabled` (она же управляет элементом в строке состояния); вручную в боковой панели статус можно сменить в любом случае.
+Status Sync показывает, совпадают ли **метки** **задачи (Issue)** и её открытых **Merge Request** (GitLab) или **Pull Request** (GitHub), и синхронизирует их **только после вашего подтверждения**. Автоматически ничего не записывается.
 
 #### Как это работает
 
@@ -410,25 +410,30 @@ Status Sync поддерживает одинаковые **метки стат�
 2. Загружает задачу, её открытые MR/PR и метки статуса проекта:
    - **GitLab:** связанные merge request'ы **плюс** открытые MR, у которых исходная ветка — текущая.
    - **GitHub:** открытые PR из текущей ветки **плюс** PR, которые «закрывают» задачу (GraphQL `closedByPullRequestsReferences`).
-3. Если статусы различаются, согласует их по правилу из `gitPilot.statusSync.sourceOfTruth`.
-4. Показывает результат в строке состояния:
+   - Учитываются только MR/PR **того же проекта**. MR/PR из других проектов, которые просто упоминают задачу, игнорируются: создать такой может кто угодно, поэтому они не должны влиять на вашу задачу или получать записи с вашим токеном.
+3. **Источник истины — MR/PR:** открытый MR/PR с меткой статуса, обновлённый позже остальных (а если статуса нет ни у одного — просто последний обновлённый открытый MR/PR).
+4. Если задача (или другой открытый MR/PR) с ним расходится, это видно в сводке боковой панели и в строке состояния. Команда **Sync Labels from MR / PR…** (`⇅` на панели раздела, в строке-сводке, клик по элементу строки состояния или пункт в списке статусов) перечитывает данные и открывает подтверждение со списком всех изменений и двумя вариантами:
+   - **Sync Statuses** — ставит метку статуса MR/PR задаче и остальным открытым MR/PR; прочие метки не трогаются.
+   - **Sync All Labels** — делает метки задачи и остальных открытых MR/PR **в точности** такими же, как у MR/PR, в том числе снимает метки, которых у него нет.
+
+   Записываются только изменения, показанные в окне, минимальной разницей. Если за это время сменилась ветка, синхронизация отменяется.
 
 | Состояние | Строка состояния |
 | --- | --- |
 | Нет токена | `$(key) Git Pilot: Set Token` |
-| Синхронизация | `$(sync~spin) Git Pilot: #142...` |
-| Синхронизировано | `$(tag) #142: status: qa-passed (MR !89)` |
-| Конфликт (режим `prompt`) | `$(warning) #142: todo ≠ MR: qa-passed` (жёлтый фон) |
+| Загрузка | `$(sync~spin) Git Pilot: #142...` |
+| Совпадает | `$(tag) #142: qa-passed (MR !89)` (если расходятся только нестатусные метки, добавляется `$(diff)`) |
+| Статус расходится | `$(warning) #142: todo ≠ MR !89: qa-passed` (жёлтый фон; клик — синхронизация) |
 
-Нажмите на элемент в строке состояния, чтобы выбрать статус. В списке (QuickPick) есть все метки проекта, начинающиеся с вашего префикса, текущая отмечена `$(check)`. Там же быстрые действия: **Force Sync Now** (синхронизировать сейчас), **Open Issue/MR in Browser** (открыть в браузере) и **Update API Token** (обновить токен). В списке только метки статуса, которые уже есть в проекте, — новые создавайте в GitLab/GitHub.
+Нажмите на элемент в строке состояния, чтобы выбрать статус (а если статус расходится — чтобы синхронизировать). В списке (QuickPick) есть все метки проекта, начинающиеся с вашего префикса, текущая отмечена `$(check)`. Там же быстрые действия: **Sync Labels from MR/PR…** (если что-то расходится), **Refresh** (обновить), **Open Issue/MR in Browser** (открыть в браузере) и **Update API Token** (обновить токен). Показываются и применяются только метки статуса, которые уже есть в проекте, — новые создавайте в GitLab/GitHub.
 
-#### Когда запускается синхронизация
+#### Когда обновляются данные (только чтение)
 
 - При активации расширения
 - При переключении ветки или репозитория
 - Когда окно VS Code снова получает фокус (не чаще раза в 30 с)
-- По таймеру каждые `autoSyncInterval` секунд (только при включённой автосинхронизации; пока окно в фоне, опрос приостановлен)
-- Командой **Git Pilot: Issue & MR: Sync Now**
+- Каждые `gitPilot.statusSync.refreshInterval` секунд (пока окно в фоне, обновление приостановлено)
+- Командой **Git Pilot: Issue & MR: Refresh**
 
 #### Взаимоисключающие статусы на любой платформе
 
@@ -448,25 +453,12 @@ Status Sync поддерживает одинаковые **метки стат�
 | `gitPilot.instanceUrl` | `""` | Базовый URL собственного GitLab / GitHub Enterprise, например `https://gitlab.company.com`. Поддерживаются инстансы по подпути (например, `https://host/gitlab`). |
 | `gitPilot.allowInsecureHttp` | `false` | Только на уровне пользователя. Разрешает отправлять токены по открытому `http://` (только вместе с явным `http://` в `instanceUrl`). Не рекомендуется. |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Регулярное выражение, **первая группа захвата** которого — номер (IID) задачи. |
-| `gitPilot.statusSync.enabled` | `true` | Автоматическая синхронизация статуса и элемент в строке состояния. Ручная смена статуса и меток в боковой панели работает независимо от неё. |
 | `gitPilot.statusSync.showSection` | `true` | Показывает раздел *Issue & MR* в боковой панели. Не действует (раздел показан всегда), пока он единственный, то есть `gitPilot.labels.enabled` выключена. |
+| `gitPilot.statusSync.showStatusBar` | `true` | Показывает элемент задачи / MR в строке состояния. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | `status:` — для обычных меток, `status::` — для scoped labels в GitLab. |
-| `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Какая сторона побеждает при расхождении статусов (см. ниже). |
-| `gitPilot.statusSync.autoSyncInterval` | `120` | Интервал опроса в секундах. `0` отключает опрос; минимум — 10. |
+| `gitPilot.statusSync.refreshInterval` | `120` | Интервал фонового обновления данных в секундах (только чтение). `0` отключает его; минимум — 10. |
 | `gitPilot.labels.enabled` | `true` | Показывает раздел Labels (каталог меток проекта) в боковой панели. |
 | `gitPilot.labels.groups` | `[]` | Маски группировки для *All labels*, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ; `:` совпадает и с `::`). Пусто — группировка по префиксу до `:` / `::`. Метки одной группы взаимоисключающие у задачи/MR; не подошедшие ни под одну маску попадают в **Other** и могут сочетаться. |
-
-#### Источник истины (`sourceOfTruth`)
-
-| Значение | Что происходит, если статусы задачи и последнего открытого MR/PR различаются |
-| --- | --- |
-| `mr` | Статус MR/PR молча перезаписывает статус задачи (и остальных открытых MR). |
-| `issue` | Статус задачи молча перезаписывает статусы всех открытых MR/PR. |
-| `prompt` | Строка состояния становится жёлтой, и Git Pilot спрашивает, какой статус применить. Вопрос задаётся один раз для каждого нового конфликта. |
-
-*«Последний MR»* — это открытый MR/PR с меткой статуса, который обновлялся позже остальных.
-
-В любом режиме сторона **без статуса** просто получает статус другой стороны. Например, новый MR без метки получит статус задачи. Конфликтом это не считается.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -475,6 +467,8 @@ Status Sync поддерживает одинаковые **метки стат�
 ### Аутентификация
 
 Выполните **Git Pilot: Set Personal Access Token** (или нажмите `$(key) Git Pilot: Set Token`). Git Pilot хранит по одному токену на хост в `SecretStorage` VS Code, то есть в связке ключей ОС. В настройки токен никогда не записывается. Сразу после сохранения Git Pilot проверяет токен через API и показывает, под каким аккаунтом выполнен вход.
+
+Связка ключей — это Keychain в macOS, диспетчер учётных данных Windows, а в Linux — keyring Secret Service (GNOME Keyring, KWallet). Если VS Code не может к ней обратиться (обычно это Linux без установленного или разблокированного keyring), Git Pilot сообщает об этом, а не молча не работает; настройте keyring (или запустите VS Code с параметром `--password-store`, см. *Troubleshooting keychain issues* в документации VS Code). При работе через Remote-SSH / WSL / Dev Containers токен хранится в связке ключей вашей локальной машины.
 
 В поле ввода есть кнопка, которая открывает страницу создания токена с уже выбранными правами: страницу персональных токенов GitLab со scope `api` или страницу **классического** токена GitHub с `repo`. Чтобы удалить сохранённый токен, отправьте поле пустым.
 
@@ -498,7 +492,7 @@ Status Sync поддерживает одинаковые **метки стат�
 | Прочитать задачу | `GET /projects/:id/issues/:iid` | `GET /repos/:owner/:repo/issues/:n` |
 | Найти связанные MR/PR | `GET …/issues/:iid/related_merge_requests`, `GET …/merge_requests?source_branch=` | `GET /repos/…/pulls?head=`, GraphQL `closedByPullRequestsReferences` |
 | Получить список меток статуса | `GET /projects/:id/labels` | `GET /repos/…/labels` |
-| **Изменить статус** | `PUT /projects/:id/issues/:iid`, `PUT /projects/:id/merge_requests/:iid` | `PUT /repos/…/issues/:n/labels` (так же и для PR) |
+| **Изменить статус / метки** | `PUT /projects/:id/issues/:iid`, `PUT /projects/:id/merge_requests/:iid` (`add_labels` / `remove_labels`) | `POST` / `DELETE /repos/…/issues/:n/labels` (так же и для PR) |
 
 Git Pilot не читает код репозитория, не делает push, ничего не удаляет и не трогает CI, настройки и участников. У токенов GitLab и классических токенов GitHub нет более узкого scope, который всё ещё позволяет менять метки, поэтому и нужны `api` / `repo`.
 
@@ -531,7 +525,7 @@ Git Pilot не читает код репозитория, не делает pus
 
 **В репозитории** нужна роль не ниже **Triage**: это минимальная роль, которой разрешено ставить метки. GitHub Enterprise Server работает так же. Если ваша версия GitHub Enterprise Server не поддерживает fine-grained токены, используйте классический.
 
-**Создание новых меток.** Если ввести в списке новый статус, платформа создаст метку. Для этого нужно право управлять метками в проекте: в GitLab — Reporter/Planner или выше, в GitHub — **Write**.
+**Метки не создаются.** Git Pilot применяет только метки, которые уже есть в проекте, и никогда не создаёт и не удаляет метки проекта, поэтому право управлять метками не нужно.
 
 **Проверка токена.** После сохранения Git Pilot показывает *«authenticated as @user»*. Это подтверждает только, что токен **действителен** (`GET /user`), но не проверяет права на запись. Они проверяются при первой смене статуса. Если каких-то прав не хватает, это видно в строке состояния:
 
@@ -554,7 +548,8 @@ Git Pilot не читает код репозитория, не делает pus
 - **Привязка к origin:** токен отправляется только на API-origin того хоста, для которого он сохранён. Абсолютные URL от сервера (заголовки пагинации `Link`, редиректы), ведущие куда-либо ещё, отклоняются.
 - **Ручная обработка редиректов:** переход по редиректу выполняется только в пределах того же origin. Это важно, потому что иначе `fetch` передал бы GitLab-заголовок `PRIVATE-TOKEN` на любой хост.
 - **Только HTTPS:** remote вида `http://` не переводит запросы к API на открытый HTTP. Чтобы отправлять токен по HTTP, нужен `gitPilot.allowInsecureHttp`. Эта настройка имеет область `machine` и читается только из пользовательских настроек, поэтому репозиторий не может её включить.
-- **Недоверенные данные сервера:** ссылки из API открываются и отображаются, только если это `http(s)`-ссылки на хост самого инстанса. `openExternal` отказывается открывать любые другие схемы. Заголовки и метки в подсказках экранируются, а идентификаторы и ссылки на проекты проверяются перед подстановкой в пути API.
+- **Недоверенные данные сервера:** ссылки из API открываются и отображаются, только если это `http(s)`-ссылки на хост самого инстанса. `openExternal` отказывается открывать любые другие схемы. Заголовки и метки в подсказках экранируются, идентификаторы проверяются перед подстановкой в пути API, а remote URL с некорректным экранированием или сегментами `.` / `..` игнорируются. Метки GitHub с именами `.` / `..` никогда не подставляются в путь запроса (разбор URL превратил бы его в другой запрос).
+- **Никаких автоматических записей, только свой проект:** метки записываются только по вашему явному действию; синхронизация из MR/PR всегда спрашивает подтверждение и показывает список изменений. MR/PR из других проектов, упоминающие вашу задачу, игнорируются, а запись идёт только в текущий проект. Метки статуса, которых нет в проекте, отклоняются (платформы молча создали бы их).
 - **Ограничения:** regex ветки — не длиннее 300 символов, имя ветки — не длиннее 255 (защита от ReDoS). Ответ сервера — не больше 10 МБ, таймаут запроса — 20 с, не больше 10 страниц на один список.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
@@ -569,7 +564,8 @@ Git Pilot не читает код репозитория, не делает pus
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 | Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Issue & MR: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Issue & MR: Sync Labels from MR / PR… | `gitPilot.statusSync.syncFromMr` |
+| Git Pilot: Issue & MR: Refresh | `gitPilot.statusSync.refresh` |
 | Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
 
 Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. Они работают только с элементами дерева, созданными самим Git Pilot.
@@ -604,7 +600,7 @@ src/
 │       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
 └── modules/
     ├── index.ts               Список модулей (новые модули добавляются здесь)
-    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
+    ├── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
     └── labels/                index.ts · labelsTree.ts
 ```
 
@@ -642,11 +638,13 @@ export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), 
 pnpm install
 pnpm run compile      # проверка типов + сборка в dist/extension.js
 pnpm run watch        # сборка esbuild в режиме наблюдения
-pnpm run package      # минифицированная production-сборка
+pnpm run package      # минифицированная production-сборка (сначала очищает dist/)
 ```
 
 Нажмите **F5** («Run Git Pilot»), чтобы запустить Extension Development Host. Будет запущена задача `watch`: esbuild и `tsc --noEmit` в режиме наблюдения. Оба problem matcher'а встроены (собственный matcher для esbuild в `.vscode/tasks.json` и стандартный `$tsc-watch`), так что дополнительные расширения не нужны. Конфигурация «Run Git Pilot (one-off build)» вместо наблюдения один раз выполняет `pnpm run compile`.
 
 Во время работы у расширения **нет ни одной зависимости**. Все REST- и GraphQL-запросы идут через встроенный в Node `fetch`.
+
+**Упаковка.** `.vscodeignore` — белый список (`dist/extension.js`, `media/`, `README.md`, `LICENSE.md`, `package.json`). Собирайте пакет командой `vsce package --no-dependencies` (раскладка pnpm, зависимостей во время работы нет) и перед публикацией проверьте состав через `vsce ls --no-dependencies`.
 
 <sub>[↑ Содержание](#ru) · [English](#en) · [↑ В начало](#top)</sub>

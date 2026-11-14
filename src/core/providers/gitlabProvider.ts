@@ -91,10 +91,15 @@ export class GitLabProvider extends BaseProvider {
       this.fetchStatusLabels(),
     ]);
 
-    const unique = new Map<string, GlMergeRequest>();
+    // Only MRs of this very project. related_merge_requests also returns MRs of *other* projects that
+    // merely mention the issue — anyone can create those, so they must neither drive the status nor
+    // receive writes made with the user's token.
+    const unique = new Map<number, GlMergeRequest>();
     for (const mr of [...byBranch, ...related]) {
-      if (mr.state === 'opened') {
-        unique.set(`${mr.project_id}!${mr.iid}`, mr);
+      if (mr?.state === 'opened' && mr.project_id === issue.project_id && Number.isSafeInteger(mr.iid)) {
+        unique.set(mr.iid, mr);
+      } else if (mr && mr.project_id !== issue.project_id) {
+        this.logger.debug(`[gitlab] Ignoring MR !${String(mr.iid)} of another project (${String(mr.project_id)}).`);
       }
     }
 
@@ -127,10 +132,9 @@ export class GitLabProvider extends BaseProvider {
     // add_labels/remove_labels is a minimal diff, so concurrent edits to other labels are not clobbered.
     const { add, remove } = labelDiff(currentLabels, nextLabels);
 
-    // projectRef comes from the server; only numeric GitLab project ids may enter the path.
-    const project = entity.projectRef && /^\d+$/.test(entity.projectRef) ? entity.projectRef : this.projectId;
+    // Writes only ever go to the current project (foreign MRs are filtered out in getSyncState).
     const resource = kind === 'issue' ? 'issues' : 'merge_requests';
-    const res = await this.request<GlIssue | GlMergeRequest>('PUT', `/projects/${project}/${resource}/${entity.id}`, {
+    const res = await this.request<GlIssue | GlMergeRequest>('PUT', `/projects/${this.projectId}/${resource}/${entity.id}`, {
       body: {
         ...(add.length ? { add_labels: add.join(',') } : {}),
         ...(remove.length ? { remove_labels: remove.join(',') } : {}),

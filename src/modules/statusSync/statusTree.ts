@@ -5,7 +5,7 @@ import { isStatusLabel, sameStatus, statusValue } from '../../core/providers/bas
 import type { EntityKind, EntityRef, SyncState } from '../../core/types';
 import { SectionView, TreeNode } from '../../core/ui/sectionView';
 import { COMMANDS, type SyncViewState } from './statusBarUi';
-import { entityKey } from './syncEngine';
+import { type SyncPlan, buildSyncPlan, describeChanges, entityKey, entityName, hasChanges } from './syncPlan';
 
 export const STATUS_VIEW_ID = 'gitPilot.statusSync';
 
@@ -28,11 +28,10 @@ interface Place {
 export interface StatusTreeSettings {
   prefix: string;
   masks: string[];
-  autoSync: boolean;
 }
 
 /**
- * Sidebar section "Issue & MR": sync status (with quick status change and conflict resolution),
+ * Sidebar section "Issue & MR": sync status (quick status change, confirmed sync from the MR/PR),
  * the current Issue and its open MRs/PRs with their labels (add / remove / replace / copy), and
  * the list of status labels. Renders the same view model as the status bar item.
  */
@@ -45,10 +44,9 @@ export class StatusTree implements vscode.Disposable {
     const s = this.section;
     const settings = this.getSettings();
     switch (view.kind) {
-      case 'disabled':
       case 'hidden':
         s.description = undefined;
-        return s.render([], view.kind === 'hidden' ? `${view.reason}.` : undefined);
+        return s.render([], `${view.reason}.`);
       case 'noIssue':
         s.description = view.branch ?? undefined;
         return s.render([], view.reason);
@@ -68,7 +66,7 @@ export class StatusTree implements vscode.Disposable {
             `Issue #${view.issueNumber} not found`,
             'circle-slash',
             `Issue #${view.issueNumber} does not exist in ${view.projectPath} (or the token cannot see it). Click to retry.`,
-            COMMANDS.syncNow,
+            COMMANDS.refresh,
           ),
         ]);
       case 'error':
@@ -76,58 +74,23 @@ export class StatusTree implements vscode.Disposable {
         return s.render([
           view.authError
             ? node('Token rejected — update the API token…', new vscode.ThemeIcon('key', ERROR_COLOR), view.message, COMMANDS.setToken)
-            : node(oneLine(view.message), new vscode.ThemeIcon('error', ERROR_COLOR), `${view.message}\n\nClick to retry.`, COMMANDS.syncNow),
+            : node(oneLine(view.message), new vscode.ThemeIcon('error', ERROR_COLOR), `${view.message}\n\nClick to retry.`, COMMANDS.refresh),
         ]);
-      case 'synced':
-      case 'conflict':
+      case 'ready':
         s.description = `#${view.state.issue.id}`;
-        return s.render(this.stateNodes(view.state, view.lastSyncAt, view.kind === 'conflict' ? view : null, settings));
+        return s.render(this.stateNodes(view.state, view.lastSyncAt, settings));
     }
   }
 
-  private stateNodes(
-    state: SyncState,
-    lastSyncAt: Date,
-    conflict: { issueStatus: string; mrStatus: string; mr: EntityRef } | null,
-    settings: StatusTreeSettings,
-  ): TreeNode[] {
+  private stateNodes(state: SyncState, lastSyncAt: Date, settings: StatusTreeSettings): TreeNode[] {
     const term = mrTerm(state.platform);
     const value = (label: string | null) => (label ? statusValue(label, settings.prefix) : 'no status');
     const time = lastSyncAt.toLocaleTimeString();
-    const autoNote = settings.autoSync ? '' : '\nAuto-sync is off (gitPilot.statusSync.enabled).';
     const roots: TreeNode[] = [];
 
-    // 1. Summary — the primary, one-click "change status" entry point.
-    if (conflict) {
-      const ref = `${term} ${mrRef(state.platform, conflict.mr.id)}`;
-      roots.push(
-        new TreeNode({
-          id: 'summary',
-          label: 'Status conflict',
-          description: `Issue: ${value(conflict.issueStatus)} ≠ ${ref}: ${value(conflict.mrStatus)}`,
-          tooltip: `Issue #${state.issue.id} is "${conflict.issueStatus}" but ${ref} is "${conflict.mrStatus}". Choose which status wins.\nLast sync ${time}${autoNote}`,
-          icon: new vscode.ThemeIcon('warning', WARN_COLOR),
-          contextValue: 'summary',
-          children: [
-            this.applyNode('resolve:issue', `Use Issue status: ${oneLine(conflict.issueStatus)}`, conflict.issueStatus, 'issues'),
-            this.applyNode('resolve:mr', `Use ${ref} status: ${oneLine(conflict.mrStatus)}`, conflict.mrStatus, 'git-pull-request'),
-            node('Choose another status…', 'list-selection', undefined, COMMANDS.selectStatus),
-          ],
-        }),
-      );
-    } else {
-      roots.push(
-        new TreeNode({
-          id: 'summary',
-          label: `Status: ${value(state.issue.statusLabel)}`,
-          description: `${settings.autoSync ? 'in sync' : 'auto-sync off'} · ${time}`,
-          tooltip: `Issue and all open ${term}s carry ${state.issue.statusLabel ? `"${state.issue.statusLabel}"` : 'no status'}.\nClick to change the status.\nLast sync ${time}${autoNote}`,
-          icon: new vscode.ThemeIcon(settings.autoSync ? 'pass' : 'circle-large-outline', settings.autoSync ? OK_COLOR : undefined),
-          contextValue: 'summary',
-          command: COMMANDS.selectStatus,
-        }),
-      );
-    }
+    // 1. Summary — "change status" entry point; when the Issue differs from the MR/PR, the sync action.
+    const plan = buildSyncPlan(state, settings.prefix);
+    roots.push(this.summaryNode(state, plan, time, value));
 
     // 2. Issue and MRs with their labels.
     const places: Place[] = [
@@ -227,8 +190,51 @@ export class StatusTree implements vscode.Disposable {
     });
   }
 
-  private applyNode(id: string, label: string, status: string, icon: string): TreeNode {
-    return new TreeNode({ id, label, icon, tooltip: label, value: status, command: COMMANDS.applyStatus });
+  private summaryNode(state: SyncState, plan: SyncPlan, time: string, value: (label: string | null) => string): TreeNode {
+    const term = mrTerm(state.platform);
+    const source = plan.source;
+    if (!source || !hasChanges(plan)) {
+      return new TreeNode({
+        id: 'summary',
+        label: `Status: ${value(state.issue.statusLabel)}`,
+        description: `${source ? 'in sync' : `no open ${term}`} · ${time}`,
+        tooltip: `${source ? `Issue and all open ${term}s carry the same labels.` : `No open ${term} is linked to this issue or branch.`}\nClick to change the status.\nUpdated ${time}`,
+        icon: new vscode.ThemeIcon('pass', OK_COLOR),
+        contextValue: 'summary',
+        command: COMMANDS.selectStatus,
+      });
+    }
+    const ref = entityName(state.platform, 'mr', source);
+    const statusDiffers = plan.status.length > 0;
+    // Show what "Sync All Labels" would change (a superset of the status changes on the other items).
+    const changes = plan.labels.length ? plan.labels : plan.status;
+    const lines = describeChanges(state.platform, changes);
+    return new TreeNode({
+      id: 'summary',
+      label: statusDiffers ? 'Status differs' : 'Labels differ',
+      description: statusDiffers
+        ? `Issue: ${value(state.issue.statusLabel)} ≠ ${ref}: ${value(source.statusLabel)}`
+        : `from ${ref} · ${time}`,
+      tooltip: `${ref} is the source of truth. Click to review and sync labels from it.\n\n${lines.join('\n')}\n\nUpdated ${time}`,
+      icon: new vscode.ThemeIcon('warning', WARN_COLOR),
+      contextValue: 'summary outOfSync',
+      command: COMMANDS.syncFromMr,
+      expanded: false,
+      children: [
+        new TreeNode({ id: 'summary/sync', label: `Sync from ${ref}…`, icon: 'sync', tooltip: `Review and confirm the changes`, command: COMMANDS.syncFromMr }),
+        ...changes.map(
+          (c, i) =>
+            new TreeNode({
+              id: `summary/diff:${c.key}`,
+              label: entityName(state.platform, c.kind, c.entity),
+              description: lines[i].slice(lines[i].indexOf(': ') + 2),
+              tooltip: lines[i],
+              icon: 'diff',
+            }),
+        ),
+        node('Choose another status…', 'list-selection', undefined, COMMANDS.selectStatus),
+      ],
+    });
   }
 
   dispose(): void {

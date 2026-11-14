@@ -5,7 +5,6 @@ import type { Logger } from '../logger';
 export const CONFIG_SECTION = 'gitPilot';
 
 export type ProviderSetting = 'auto' | 'gitlab' | 'github';
-export type SourceOfTruth = 'mr' | 'issue' | 'prompt';
 
 export const DEFAULT_BRANCH_ISSUE_REGEX = '(?:^|/|-)(\\d+)(?:-|_|$)';
 export const DEFAULT_LABEL_PREFIX = 'status:';
@@ -14,14 +13,13 @@ const MAX_LABEL_GROUPS = 50;
 const MAX_LABEL_MASK_LENGTH = 100;
 
 export interface StatusSyncSettings {
-  /** Automatic synchronization + status bar item. Manual status/label editing works regardless. */
-  enabled: boolean;
   /** Show the "Issue & MR" sidebar section (forced on in package.json when no other section is enabled). */
   showSection: boolean;
+  /** Show the status bar item. */
+  showStatusBar: boolean;
   labelPrefix: string;
-  sourceOfTruth: SourceOfTruth;
-  /** Seconds; 0 disables polling. */
-  autoSyncInterval: number;
+  /** Seconds between read-only background refreshes; 0 disables them. Labels are never written automatically. */
+  refreshInterval: number;
 }
 
 export interface LabelsSettings {
@@ -116,14 +114,12 @@ export class SettingsManager implements vscode.Disposable {
 
   get statusSync(): StatusSyncSettings {
     const cfg = this.config;
-    const sot = cfg.get<string>('statusSync.sourceOfTruth', 'mr');
-    const interval = Number(cfg.get<number>('statusSync.autoSyncInterval', 120));
+    const interval = Number(cfg.get<number>('statusSync.refreshInterval', 120));
     return {
-      enabled: cfg.get<boolean>('statusSync.enabled', true),
       showSection: cfg.get<boolean>('statusSync.showSection', true),
+      showStatusBar: cfg.get<boolean>('statusSync.showStatusBar', true),
       labelPrefix: cfg.get<string>('statusSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
-      sourceOfTruth: sot === 'issue' || sot === 'prompt' ? sot : 'mr',
-      autoSyncInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,
+      refreshInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,
     };
   }
 

@@ -89,7 +89,14 @@ export class ProviderManager implements vscode.Disposable {
     if (!repo) {
       return { status: 'noRepository' };
     }
-    const target = this.describeTarget(repo);
+    let target: ProviderTarget | null;
+    try {
+      target = this.describeTarget(repo);
+    } catch (err) {
+      // Defensive: a remote/instanceUrl that yields no valid URL must not break every caller.
+      this.logger.warn(`Cannot derive the platform URL for ${repo.remote?.url ?? '(no remote)'}: ${String(err)}`);
+      target = null;
+    }
     if (!target) {
       return { status: 'noRemote', repo };
     }

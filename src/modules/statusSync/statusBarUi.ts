@@ -1,34 +1,35 @@
 import * as vscode from 'vscode';
 import { sameStatus, statusValue } from '../../core/providers/baseProvider';
 import { code, escapeMd, mrRef, mrTerm } from '../../core/format';
-import type { EntityRef, Platform, SyncState } from '../../core/types';
+import type { Platform, SyncState } from '../../core/types';
+import { type Conflict, buildSyncPlan, entityName, hasChanges } from './syncPlan';
 
 // ---------------------------------------------------------------------------
 // View model produced by the SyncEngine and rendered here
 // ---------------------------------------------------------------------------
 
 export type SyncViewState =
-  | { kind: 'disabled' }
   | { kind: 'hidden'; reason: string }
   | { kind: 'noIssue'; branch: string | null; reason: string }
   | { kind: 'unknownPlatform'; host: string }
   | { kind: 'missingToken'; host: string; platform: Platform }
   | { kind: 'syncing'; issueNumber: number }
   | { kind: 'issueNotFound'; issueNumber: number; projectPath: string }
-  | { kind: 'synced'; state: SyncState; lastSyncAt: Date }
-  | { kind: 'conflict'; state: SyncState; issueStatus: string; mrStatus: string; mr: EntityRef; lastSyncAt: Date }
+  | { kind: 'ready'; state: SyncState; lastSyncAt: Date }
   | { kind: 'error'; issueNumber: number | null; message: string; authError: boolean };
 
 export type StatusPickResult =
   | { type: 'status'; label: string }
-  | { type: 'syncNow' }
+  | { type: 'refresh' }
+  | { type: 'syncFromMr' }
   | { type: 'open'; url: string }
   | { type: 'setToken' };
 
 export const COMMANDS = {
   setToken: 'gitPilot.setToken',
   selectStatus: 'gitPilot.statusSync.selectStatus',
-  syncNow: 'gitPilot.statusSync.syncNow',
+  refresh: 'gitPilot.statusSync.refresh',
+  syncFromMr: 'gitPilot.statusSync.syncFromMr',
   openInBrowser: 'gitPilot.openInBrowser',
   applyStatus: 'gitPilot.statusSync.applyStatus',
   addLabel: 'gitPilot.statusSync.addLabel',
@@ -46,7 +47,7 @@ export class StatusBarUi implements vscode.Disposable {
 
   constructor(private readonly getPrefix: () => string) {
     this.item = vscode.window.createStatusBarItem('gitPilot.statusSync', vscode.StatusBarAlignment.Left, 50);
-    this.item.name = 'Git Pilot: Status Sync';
+    this.item.name = 'Git Pilot: Issue & MR';
   }
 
   render(view: SyncViewState): void {
@@ -55,7 +56,6 @@ export class StatusBarUi implements vscode.Disposable {
     item.command = COMMANDS.selectStatus;
 
     switch (view.kind) {
-      case 'disabled':
       case 'hidden':
         item.hide();
         return;
@@ -63,7 +63,7 @@ export class StatusBarUi implements vscode.Disposable {
       case 'noIssue':
         item.text = '$(tag) Git Pilot';
         item.tooltip = new vscode.MarkdownString(`**Git Pilot** — ${escapeMd(view.reason)}`);
-        item.command = COMMANDS.syncNow;
+        item.command = COMMANDS.refresh;
         break;
 
       case 'unknownPlatform':
@@ -80,37 +80,38 @@ export class StatusBarUi implements vscode.Disposable {
 
       case 'syncing':
         item.text = `$(sync~spin) Git Pilot: #${view.issueNumber}...`;
-        item.tooltip = `Syncing issue #${view.issueNumber}…`;
+        item.tooltip = `Loading issue #${view.issueNumber}…`;
         break;
 
       case 'issueNotFound':
         item.text = `$(circle-slash) #${view.issueNumber}: not found`;
         item.tooltip = `Issue #${view.issueNumber} does not exist in ${view.projectPath} (or the token cannot see it). Click to retry.`;
-        item.command = COMMANDS.syncNow;
+        item.command = COMMANDS.refresh;
         break;
 
-      case 'synced': {
+      case 'ready': {
         const { state } = view;
-        const status = state.issue.statusLabel ?? 'no status';
-        const mrPart = this.mrSummary(state);
-        item.text = `$(tag) #${state.issue.id}: ${status}${mrPart ? ` (${mrPart})` : ''}`;
-        item.tooltip = this.tooltip(state, view.lastSyncAt);
-        break;
-      }
-
-      case 'conflict': {
         const prefix = this.getPrefix();
-        const term = mrTerm(view.state.platform);
-        item.text = `$(warning) #${view.state.issue.id}: ${statusValue(view.issueStatus, prefix)} ≠ ${term}: ${statusValue(view.mrStatus, prefix)}`;
-        item.tooltip = this.tooltip(view.state, view.lastSyncAt, true);
-        item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        const plan = buildSyncPlan(state, prefix);
+        const value = (label: string | null) => (label ? statusValue(label, prefix) : 'no status');
+        if (plan.source && plan.status.length) {
+          // The status differs from the MR/PR (the source of truth): one click opens the confirmed sync.
+          const ref = entityName(state.platform, 'mr', plan.source);
+          item.text = `$(warning) #${state.issue.id}: ${value(state.issue.statusLabel)} ≠ ${ref}: ${value(plan.source.statusLabel)}`;
+          item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+          item.command = COMMANDS.syncFromMr;
+        } else {
+          const mrPart = this.mrSummary(state);
+          item.text = `$(tag) #${state.issue.id}: ${value(state.issue.statusLabel)}${mrPart ? ` (${mrPart})` : ''}${plan.labels.length ? ' $(diff)' : ''}`;
+        }
+        item.tooltip = this.tooltip(state, view.lastSyncAt, plan.status.length > 0, hasChanges(plan));
         break;
       }
 
       case 'error':
         item.text = view.authError ? '$(key) Git Pilot: Token rejected' : `$(error) Git Pilot${view.issueNumber ? `: #${view.issueNumber}` : ''}`;
         item.tooltip = `${view.message}\n\nClick to ${view.authError ? 'update the token' : 'retry'}.`;
-        item.command = view.authError ? COMMANDS.setToken : COMMANDS.syncNow;
+        item.command = view.authError ? COMMANDS.setToken : COMMANDS.refresh;
         item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         break;
     }
@@ -125,12 +126,13 @@ export class StatusBarUi implements vscode.Disposable {
     return `${mrTerm(state.platform)} ${mrRef(state.platform, first.id)}${rest.length ? ` +${rest.length}` : ''}`;
   }
 
-  private tooltip(state: SyncState, lastSyncAt: Date, conflict = false): vscode.MarkdownString {
+  private tooltip(state: SyncState, lastSyncAt: Date, statusDiffers: boolean, outOfSync: boolean): vscode.MarkdownString {
     const md = new vscode.MarkdownString(undefined, true);
-    md.isTrusted = { enabledCommands: [COMMANDS.selectStatus, COMMANDS.syncNow] };
+    md.isTrusted = { enabledCommands: [COMMANDS.selectStatus, COMMANDS.refresh, COMMANDS.syncFromMr] };
     const term = mrTerm(state.platform);
+    const note = statusDiffers ? ' $(warning) _status differs_' : outOfSync ? ' $(diff) _labels differ_' : '';
 
-    md.appendMarkdown(`**Git Pilot — Status Sync**${conflict ? ' $(warning) _conflict_' : ''}\n\n`);
+    md.appendMarkdown(`**Git Pilot — Issue & ${term}**${note}\n\n`);
     md.appendMarkdown(`$(issues) Issue [#${state.issue.id} ${escapeMd(state.issue.title)}](${state.issue.webUrl}) — ${code(state.issue.statusLabel)}\n\n`);
     if (state.mergeRequests.length === 0) {
       md.appendMarkdown(`$(git-pull-request) _No open ${term} linked to this issue or branch_\n\n`);
@@ -141,8 +143,9 @@ export class StatusBarUi implements vscode.Disposable {
       );
     }
     md.appendMarkdown(`---\n\n`);
+    const sync = outOfSync ? `[$(sync) Sync from ${term}…](command:${COMMANDS.syncFromMr}) · ` : '';
     md.appendMarkdown(
-      `[$(tag) Change status](command:${COMMANDS.selectStatus}) · [$(sync) Sync now](command:${COMMANDS.syncNow}) · _last sync ${lastSyncAt.toLocaleTimeString()}_`,
+      `${sync}[$(tag) Change status](command:${COMMANDS.selectStatus}) · [$(refresh) Refresh](command:${COMMANDS.refresh}) · _updated ${lastSyncAt.toLocaleTimeString()}_`,
     );
     return md;
   }
@@ -155,7 +158,7 @@ export class StatusBarUi implements vscode.Disposable {
    * Shows available status labels (with `$(check)` on the current one) plus quick actions.
    * Only labels that exist in the project are offered; new labels are never created.
    */
-  async pickStatus(state: SyncState, conflict?: { issueStatus: string; mrStatus: string; mr: EntityRef }): Promise<StatusPickResult | undefined> {
+  async pickStatus(state: SyncState, conflict?: Conflict, outOfSync = false): Promise<StatusPickResult | undefined> {
     type Item = vscode.QuickPickItem & { result?: StatusPickResult };
     const prefix = this.getPrefix();
     const term = mrTerm(state.platform);
@@ -181,7 +184,8 @@ export class StatusBarUi implements vscode.Disposable {
     });
 
     const actionItems: Item[] = [
-      { label: '$(sync) Force Sync Now', result: { type: 'syncNow' } },
+      ...(outOfSync ? [{ label: `$(sync) Sync Labels from ${term}…`, result: { type: 'syncFromMr' } } as Item] : []),
+      { label: '$(refresh) Refresh', result: { type: 'refresh' } },
       { label: '$(issues) Open Issue in Browser', description: `#${state.issue.id}`, result: { type: 'open', url: state.issue.webUrl } },
       ...state.mergeRequests.map<Item>((mr) => ({
         label: `$(git-pull-request) Open ${term} in Browser`,
@@ -202,7 +206,7 @@ export class StatusBarUi implements vscode.Disposable {
 
     const qp = vscode.window.createQuickPick<Item>();
     qp.title = conflict
-      ? `Resolve status conflict for #${state.issue.id}`
+      ? `Status for #${state.issue.id} (differs from ${term} ${mrRef(state.platform, conflict.mr.id)})`
       : `Status for #${state.issue.id}${state.mergeRequests.length ? ` and ${state.mergeRequests.length} open ${term}` : ''}`;
     qp.placeholder = `Select a status to apply to the issue and all open ${term}s`;
     qp.matchOnDescription = true;

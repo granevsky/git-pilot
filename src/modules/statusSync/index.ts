@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { openExternalSafe } from '../../core/commands';
-import { mrRef, mrTerm, oneLine } from '../../core/format';
+import { mrTerm, oneLine } from '../../core/format';
 import { labelGroup } from '../../core/labels';
 import { errorMessage } from '../../core/logger';
 import { isStatusLabel } from '../../core/providers/baseProvider';
@@ -9,17 +9,22 @@ import { TreeNode } from '../../core/ui/sectionView';
 import { pickLabels, pickTargets } from './labelPicker';
 import { COMMANDS, StatusBarUi, type SyncViewState } from './statusBarUi';
 import { StatusTree } from './statusTree';
-import { SyncEngine, entityKeys, findConflict, findEntity, type LabelEdit } from './syncEngine';
+import { SyncEngine, type LabelEdit } from './syncEngine';
+import { buildSyncPlan, describeChanges, entityKeys, entityName, findConflict, findEntity, hasChanges } from './syncPlan';
 
 /** Settings whose change only affects presentation of the section / status bar. */
-const RENDER_SETTINGS = ['gitPilot.statusSync.enabled', 'gitPilot.statusSync.labelPrefix', 'gitPilot.labels.groups'];
+const RENDER_SETTINGS = ['gitPilot.statusSync.showStatusBar', 'gitPilot.statusSync.labelPrefix', 'gitPilot.labels.groups'];
+
+/** Max change lines per option in the confirmation dialog. */
+const MAX_DETAIL_LINES = 12;
 
 /**
  * Feature Module #1 — the "Issue & MR" sidebar section and the status bar item.
  *
- * Keeps `status:` labels synchronized between an Issue and its open Merge Requests (GitLab) /
- * Pull Requests (GitHub) while auto-sync (`gitPilot.statusSync.enabled`) is on, and always lets
- * the user change the status and add / remove / replace the other labels of the Issue and MRs.
+ * Shows the Issue of the current branch and its open Merge Requests (GitLab) / Pull Requests
+ * (GitHub) of the same project, lets the user change the status and add / remove / replace labels,
+ * and — only after confirmation — syncs the Issue's labels from the MR/PR (the source of truth).
+ * Nothing is written automatically.
  */
 export class StatusSyncModule implements PilotModule {
   readonly id = 'statusSync';
@@ -36,7 +41,6 @@ export class StatusSyncModule implements PilotModule {
     const tree = (this.tree = new StatusTree(() => ({
       prefix: ctx.settings.statusSync.labelPrefix,
       masks: ctx.settings.labels.groups,
-      autoSync: ctx.settings.statusSync.enabled,
     })));
     const engine = (this.engine = new SyncEngine(ctx));
 
@@ -46,29 +50,25 @@ export class StatusSyncModule implements PilotModule {
       engine,
       engine.onDidChangeView((view) => this.render(view)),
       vscode.commands.registerCommand(COMMANDS.selectStatus, () => this.selectStatus()),
-      vscode.commands.registerCommand(COMMANDS.syncNow, () => this.syncNow()),
+      vscode.commands.registerCommand(COMMANDS.refresh, () => this.refresh()),
+      vscode.commands.registerCommand(COMMANDS.syncFromMr, () => this.syncFromMr()),
       vscode.commands.registerCommand(COMMANDS.applyStatus, (node: unknown) => this.applyStatusFromNode(node)),
       vscode.commands.registerCommand(COMMANDS.addLabel, (node: unknown) => this.addLabel(node)),
       vscode.commands.registerCommand(COMMANDS.removeLabel, (node: unknown) => this.removeLabel(node)),
       vscode.commands.registerCommand(COMMANDS.replaceLabel, (node: unknown) => this.replaceLabel(node)),
       vscode.commands.registerCommand(COMMANDS.copyLabel, (node: unknown) => this.copyLabelToOthers(node)),
       ctx.eventBus.onDidChangeConfig((e) => {
-        if (e.affectsConfiguration('gitPilot.statusSync.enabled')) {
-          ctx.logger.info(`Status Sync auto-sync ${ctx.settings.statusSync.enabled ? 'enabled' : 'disabled'}.`);
-        }
         if (RENDER_SETTINGS.some((s) => e.affectsConfiguration(s))) {
           this.render(engine.currentView);
         }
       }),
     );
     this.render(engine.currentView);
-    // The engine always runs: the section needs data even with auto-sync off.
     engine.start();
   }
 
   private render(view: SyncViewState): void {
-    // The status bar item is the auto-sync indicator; the sidebar section is always available.
-    this.ui?.render(this.ctx?.settings.statusSync.enabled ? view : { kind: 'disabled' });
+    this.ui?.render(this.ctx?.settings.statusSync.showStatusBar ? view : { kind: 'hidden', reason: 'Status bar item disabled' });
     this.tree?.render(view);
   }
 
@@ -76,8 +76,70 @@ export class StatusSyncModule implements PilotModule {
   // Status
   // -------------------------------------------------------------------------
 
-  private async syncNow(): Promise<void> {
+  private async refresh(): Promise<void> {
     await this.engine?.requestSync('manual');
+  }
+
+  /**
+   * Syncs labels from the MR/PR (source of truth: the most recently updated open MR/PR with a status)
+   * after a modal confirmation that lists every change: "Sync Statuses" copies only its status label
+   * to the Issue and the other MRs/PRs; "Sync All Labels" makes their label sets equal to its labels.
+   */
+  private async syncFromMr(): Promise<void> {
+    const engine = this.engine;
+    const ctx = this.ctx;
+    if (!engine || !ctx) {
+      return;
+    }
+    // Always decide on fresh data: the dialog must show exactly what will be written.
+    const state = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Git Pilot: loading labels…' }, () =>
+      engine.refreshState(),
+    );
+    if (!state) {
+      return; // the view / error message already explains why
+    }
+    const plan = buildSyncPlan(state, ctx.settings.statusSync.labelPrefix);
+    const term = mrTerm(state.platform);
+    const source = plan.source;
+    if (!source) {
+      void vscode.window.showInformationMessage(`Git Pilot: issue #${state.issue.id} has no open ${term} in this project — nothing to sync from.`);
+      return;
+    }
+    const ref = entityName(state.platform, 'mr', source);
+    if (!hasChanges(plan)) {
+      void vscode.window.showInformationMessage(`Git Pilot: issue #${state.issue.id} already has the same labels as ${ref}.`);
+      return;
+    }
+
+    const SYNC_STATUS = 'Sync Statuses';
+    const SYNC_ALL = 'Sync All Labels';
+    const section = (title: string, changes: Parameters<typeof describeChanges>[1], empty: string) => {
+      if (!changes.length) {
+        return `${title}: ${empty}`;
+      }
+      const lines = describeChanges(state.platform, changes);
+      const shown = lines.slice(0, MAX_DETAIL_LINES);
+      const more = lines.length - shown.length;
+      return [`${title}:`, ...shown.map((l) => `  ${l}`), ...(more > 0 ? [`  …and ${more} more`] : [])].join('\n');
+    };
+    const sourceWhy = source.statusLabel ? `the most recently updated open ${term} with a status` : `the most recently updated open ${term}`;
+    const detail = [
+      `Source of truth: ${ref} "${oneLine(source.title, 80)}" (${sourceWhy}).`,
+      '',
+      section(SYNC_STATUS, plan.status, source.statusLabel ? 'nothing to change.' : `${ref} has no status label.`),
+      '',
+      section(SYNC_ALL, plan.labels, 'nothing to change.'),
+      '',
+      `"${SYNC_ALL}" makes the labels of the Issue and the other open ${term}s exactly match ${ref}: labels missing on ${ref} are removed.`,
+    ].join('\n');
+
+    const buttons = [...(plan.status.length ? [SYNC_STATUS] : []), ...(plan.labels.length ? [SYNC_ALL] : [])];
+    const choice = await vscode.window.showWarningMessage(`Sync labels of issue #${state.issue.id} from ${ref}?`, { modal: true, detail }, ...buttons);
+    if (choice === SYNC_STATUS) {
+      await engine.applyChanges(state, plan.status, `Synced statuses from ${ref}`);
+    } else if (choice === SYNC_ALL) {
+      await engine.applyChanges(state, plan.labels, `Synced all labels from ${ref}`);
+    }
   }
 
   /**
@@ -113,7 +175,8 @@ export class StatusSyncModule implements PilotModule {
     if (!state) {
       return;
     }
-    const pick = await this.ui.pickStatus(state, findConflict(state) ?? undefined);
+    const outOfSync = hasChanges(buildSyncPlan(state, this.ctx?.settings.statusSync.labelPrefix ?? ''));
+    const pick = await this.ui.pickStatus(state, findConflict(state) ?? undefined, outOfSync);
     if (!pick) {
       return;
     }
@@ -121,8 +184,11 @@ export class StatusSyncModule implements PilotModule {
       case 'status':
         await engine.applyStatus(pick.label);
         break;
-      case 'syncNow':
+      case 'refresh':
         await engine.requestSync('manual');
+        break;
+      case 'syncFromMr':
+        await this.syncFromMr();
         break;
       case 'open':
         await openExternalSafe(pick.url);
@@ -313,7 +379,7 @@ export class StatusSyncModule implements PilotModule {
     if (!found || found.kind === 'issue') {
       return `${withIcon ? '$(issues) ' : ''}Issue #${state.issue.id}`;
     }
-    return `${withIcon ? '$(git-pull-request) ' : ''}${mrTerm(state.platform)} ${mrRef(state.platform, found.entity.id)}`;
+    return `${withIcon ? '$(git-pull-request) ' : ''}${entityName(state.platform, 'mr', found.entity)}`;
   }
 
   /** Current state, fetched on demand; explains why there is none. */
