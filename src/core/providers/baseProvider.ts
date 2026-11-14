@@ -1,6 +1,8 @@
 import type { SettingsManager, SourceOfTruth } from '../config/settings';
 import type { Logger } from '../logger';
-import type { EntityRef, GitPlatformProvider, Platform, ProjectLabel, SyncState, User } from '../types';
+import type { EntityKind, EntityRef, GitPlatformProvider, Platform, ProjectLabel, SyncState, User } from '../types';
+
+export type { EntityKind };
 
 // ---------------------------------------------------------------------------
 // Scoped label engine (pure functions — identical behaviour on GitHub, GitLab CE and EE)
@@ -151,8 +153,6 @@ export interface HttpResponse<T> {
   status: number;
 }
 
-export type EntityKind = 'issue' | 'mr';
-
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_PAGES = 10;
 const MAX_REDIRECTS = 3;
@@ -255,15 +255,8 @@ export abstract class BaseProvider implements GitPlatformProvider {
       if (sameLabelSet(next, entity.allLabels)) {
         return entity;
       }
-      // IDs are interpolated into API paths; never trust their runtime type.
-      if (!Number.isSafeInteger(entity.id) || entity.id <= 0) {
-        throw new ProviderError(`Invalid ${kind} id from server: ${String(entity.id)}`, 'invalidResponse');
-      }
-      const ref = kind === 'issue' ? `issue #${entity.id}` : `MR/PR ${entity.id}`;
-      this.logger.info(`[${this.platform}] ${ref}: ${entity.statusLabel ?? '(none)'} -> ${newStatusLabel}`);
-      const labels = await this.writeLabels(entity, kind, entity.allLabels, next);
-      // `updatedAt` is intentionally kept so the "latest MR" ordering stays stable.
-      return { ...entity, allLabels: labels, statusLabel: findStatusLabel(labels, prefix) };
+      this.logger.info(`[${this.platform}] ${entityName(entity, kind)}: ${entity.statusLabel ?? '(none)'} -> ${newStatusLabel}`);
+      return this.persistLabels(entity, kind, next);
     };
 
     const [issue, ...mrs] = await Promise.all([
@@ -275,6 +268,34 @@ export abstract class BaseProvider implements GitPlatformProvider {
       ? state.availableStatusLabels
       : [...state.availableStatusLabels, newStatusLabel];
     return this.buildSyncState(issue, mrs, available);
+  }
+
+  async editLabels(entity: EntityRef, kind: EntityKind, add: readonly string[], remove: readonly string[]): Promise<EntityRef> {
+    const removing = new Set(remove.map((l) => l.toLowerCase()));
+    const next = entity.allLabels.filter((l) => !removing.has(l.toLowerCase()));
+    const present = new Set(next.map((l) => l.toLowerCase()));
+    for (const label of add) {
+      if (label.trim() && !present.has(label.toLowerCase())) {
+        present.add(label.toLowerCase());
+        next.push(label);
+      }
+    }
+    if (sameLabelSet(next, entity.allLabels)) {
+      return entity;
+    }
+    this.logger.info(`[${this.platform}] ${entityName(entity, kind)}: labels +[${add.join(', ')}] -[${remove.join(', ')}]`);
+    return this.persistLabels(entity, kind, next);
+  }
+
+  /** Writes `next` as a diff against the entity's current labels and returns the updated entity. */
+  private async persistLabels(entity: EntityRef, kind: EntityKind, next: string[]): Promise<EntityRef> {
+    // IDs are interpolated into API paths; never trust their runtime type.
+    if (!Number.isSafeInteger(entity.id) || entity.id <= 0) {
+      throw new ProviderError(`Invalid ${kind} id from server: ${String(entity.id)}`, 'invalidResponse');
+    }
+    const labels = await this.writeLabels(entity, kind, entity.allLabels, next);
+    // `updatedAt` is intentionally kept so the "latest MR" ordering stays stable.
+    return { ...entity, allLabels: labels, statusLabel: findStatusLabel(labels, this.labelPrefix) };
   }
 
   // ----- HTTP client ---------------------------------------------------------
@@ -466,6 +487,20 @@ export function parseNextLink(header: string | null): string | null {
 /** Keeps only string labels from untrusted payloads. */
 export function stringLabels(raw: unknown): string[] {
   return Array.isArray(raw) ? raw.filter((l): l is string => typeof l === 'string') : [];
+}
+
+function entityName(entity: EntityRef, kind: EntityKind): string {
+  return kind === 'issue' ? `issue #${entity.id}` : `MR/PR ${entity.id}`;
+}
+
+/** Splits a label change into additions and removals (case-insensitive). */
+export function labelDiff(current: readonly string[], next: readonly string[]): { add: string[]; remove: string[] } {
+  const cur = new Set(current.map((l) => l.toLowerCase()));
+  const nxt = new Set(next.map((l) => l.toLowerCase()));
+  return {
+    add: next.filter((l) => !cur.has(l.toLowerCase())),
+    remove: current.filter((l) => !nxt.has(l.toLowerCase())),
+  };
 }
 
 function redact(url: string): string {

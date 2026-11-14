@@ -1,5 +1,5 @@
 import type { EntityRef, EntityState, ProjectLabel, SyncState, User } from '../types';
-import { BaseProvider, type EntityKind, isProviderError, statusPrefixBase, stringLabels } from './baseProvider';
+import { BaseProvider, type EntityKind, isProviderError, labelDiff, statusPrefixBase, stringLabels } from './baseProvider';
 
 // ----- GitLab REST v4 payloads (only the fields we use) -----------------------
 
@@ -125,10 +125,7 @@ export class GitLabProvider extends BaseProvider {
 
   protected async writeLabels(entity: EntityRef, kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {
     // add_labels/remove_labels is a minimal diff, so concurrent edits to other labels are not clobbered.
-    const current = new Set(currentLabels.map((l) => l.toLowerCase()));
-    const next = new Set(nextLabels.map((l) => l.toLowerCase()));
-    const add = nextLabels.filter((l) => !current.has(l.toLowerCase()));
-    const remove = currentLabels.filter((l) => !next.has(l.toLowerCase()));
+    const { add, remove } = labelDiff(currentLabels, nextLabels);
 
     // projectRef comes from the server; only numeric GitLab project ids may enter the path.
     const project = entity.projectRef && /^\d+$/.test(entity.projectRef) ? entity.projectRef : this.projectId;

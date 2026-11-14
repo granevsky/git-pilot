@@ -28,7 +28,7 @@
 
 **Git Pilot** is an extensible developer cockpit for **GitLab (CE/EE)** and **GitHub** inside VS Code.
 
-It's built as a small core platform (API clients, git integration, auth, event bus) with feature modules plugged in on top. It ships the core, the **Git Pilot sidebar** with the **Labels** section, and the **Status Sync** module. Future modules such as `dailyIssues`, `reviewRadar` and `pipelineWatcher` plug into the same core (and add their own sidebar sections) without changing existing code.
+It's built as a small core platform (API clients, git integration, auth, event bus) with feature modules plugged in on top. It ships the core, the **Git Pilot sidebar** (sections **Issue & MR** and **Labels**), and **Status Sync**. Future modules such as `dailyIssues`, `reviewRadar` and `pipelineWatcher` plug into the same core (and add their own sidebar sections) without changing existing code.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -36,21 +36,41 @@ It's built as a small core platform (API clients, git integration, auth, event b
 
 ### Sidebar
 
-The **Git Pilot** icon in the activity bar opens a sidebar made of independent sections. Each section belongs to a module and is shown only while that module is enabled (`gitPilot.<module>.enabled`); sections can be collapsed, reordered or hidden like any VS Code view. Every section has *Open Issue / MR in Browser* and *Set Personal Access Token* in its `…` menu.
+The **Git Pilot** icon in the activity bar opens a sidebar made of sections. Each section belongs to a module; sections can be collapsed, reordered or hidden like any VS Code view. Every section has *Open Issue / MR in Browser* and *Set Personal Access Token* in its `…` menu.
+
+#### Issue & MR
+
+The main section — the current branch's Issue and its open MRs/PRs. It is always shown; `gitPilot.statusSync.showSection` can hide it only while another section (Labels) is enabled.
+
+```text
+ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
+ ✓ Status: doing — in sync · 12:03     [🏷]
+ ▾ Issue #3  Add a sidebar             [+] [↗]
+     status: doing    status           [🏷]
+     app:web          not on MR !5     [→] [⇄] [✕]
+     bug              not on MR !5     [→] [✕]
+ ▾ MR !5  Draft: sidebar               [+] [↗]
+     status: doing    status           [🏷]
+     app:api          not on Issue     [→] [⇄] [✕]
+ ▸ Statuses (4)                        ← ✓ applies a status
+```
+
+- **Status** stays one click away: the summary row, the status label rows, the toolbar and the status bar item all open *Change Status*. In a conflict the summary offers *Use Issue status* / *Use MR status* / *Choose another status…*. Status labels are changed only this way — on the Issue and all open MRs/PRs at once.
+- **`+` Add Labels** — on an Issue/MR row adds to that item; on the toolbar it first asks where (the Issue, one MR/PR, or everywhere). Only labels that already exist in the project are offered; Git Pilot never creates or deletes project labels.
+- **Groups are exclusive.** Labels of one group (`app:*`, see [Labels](#en-labels)) are mutually exclusive on an Issue/MR, like scoped labels: picking `app:api` replaces `app:web`, and the picker allows one label per group. Labels without a group (**Other**) can be added several at a time.
+- **`⇄` Replace** (group labels only) — swaps the label for another one of the same group.
+- **`✕` Remove** — detaches the label from that Issue/MR only (the label stays in the project); a notification offers **Undo**.
+- **`→` Add Where Missing** — adds the label to the Issue/MRs of the branch that lack it.
+
+Every change re-reads the Issue/MRs first and is written as a minimal add/remove diff, so concurrent edits by others are kept.
+
+<a id="en-labels"></a>
 
 #### Labels
 
-A read-only overview of the labels around the current branch (`gitPilot.labels.enabled`):
+The project label catalog (`gitPilot.labels.enabled`; GitLab: including ancestor group labels), grouped by the prefix before `:` / `::` (`status:*`, `app:*`, …); labels without a prefix go to **Other**. Labels applied to the current Issue / MRs get a ✓ and show where they are (*Issue · MR !5*). Set `gitPilot.labels.groups` (e.g. `["status:*", "app:*"]`) to group by your own masks in your own order; everything else goes to **Other**. The same groups define which labels are mutually exclusive in *Issue & MR*.
 
-- **Issue #N** — the issue's labels, status label first. A label missing on an open MR/PR is marked *not on MR !5*.
-- **MR !5 / PR #5** — one node per open MR/PR with its labels, marked *not on Issue* where they differ.
-- **All labels** — every project label (GitLab: including ancestor group labels), grouped by the prefix before `:` / `::` (`status:*`, `app:*`, …); labels without a prefix go to **Other**. Applied labels get a ✓ and show where they are applied (*Issue · MR !5*). Set `gitPilot.labels.groups` (e.g. `["status:*", "app:*"]`) to group by your own masks in your own order; everything else goes to **Other**.
-
-Right-click a label to copy its name; on a status label (with Status Sync enabled) *Apply Status* sets it on the issue and all open MRs/PRs. The section loads data only while it is visible, reloads on branch / repository / token changes and when the window regains focus (at most once a minute), and picks up label changes made by Status Sync without extra API calls. The ⟳ button reloads it.
-
-#### Status Sync
-
-What the status bar tooltip and the *Select Status* picker show: whether the issue and its MRs/PRs are in sync (or the conflict, with *Use Issue status* / *Use MR status* / *Choose another status…*), the issue and each MR/PR with its status, and the list of status labels, where the ✓ button applies one. Toolbar: *Sync Now*, *Select Status*.
+Item actions: `+` *Add Labels…* while the label is missing on the Issue or an MR, `✕` *Remove Label* while it is applied (detaches it; asks from where if it is on several items, offers Undo), *Apply Status* on status labels, *Copy Label Name*. The catalog loads only while the section is visible, reloads on repository / token changes, when the window regains focus (at most once a minute) and with ⟳; applied marks come from the Issue & MR section without extra API calls.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -58,7 +78,7 @@ What the status bar tooltip and the *Select Status* picker show: whether the iss
 
 ### Status Sync
 
-Status Sync keeps **status labels** (e.g. `status: todo`, `status::qa-passed`) the same on an **Issue** and its open **Merge Requests** (GitLab) or **Pull Requests** (GitHub). It syncs automatically, and you can also change the status by hand.
+Status Sync keeps **status labels** (e.g. `status: todo`, `status::qa-passed`) the same on an **Issue** and its open **Merge Requests** (GitLab) or **Pull Requests** (GitHub). It syncs automatically while `gitPilot.statusSync.enabled` is on (this setting also controls the status bar item); changing the status by hand in the sidebar works either way.
 
 #### How it works
 
@@ -77,21 +97,21 @@ Status Sync keeps **status labels** (e.g. `status: todo`, `status::qa-passed`) t
 | Synced | `$(tag) #142: status: qa-passed (MR !89)` |
 | Conflict (`prompt` mode) | `$(warning) #142: todo ≠ MR: qa-passed` (warning background) |
 
-Click the status bar item to pick a status. The QuickPick lists every project label that starts with your prefix (the current one is marked with `$(check)`). It also has quick actions: **Force Sync Now**, **Open Issue/MR in Browser** and **Update API Token**. To create a new status label, type its name in the box.
+Click the status bar item to pick a status. The QuickPick lists every project label that starts with your prefix (the current one is marked with `$(check)`). It also has quick actions: **Force Sync Now**, **Open Issue/MR in Browser** and **Update API Token**. Only status labels that exist in the project are listed — create new ones on GitLab/GitHub.
 
 #### Sync triggers
 
 - Extension activation
 - Branch or repository switch
 - The VS Code window regaining focus (at most once every 30 s)
-- Polling every `autoSyncInterval` seconds (paused while the window is in the background)
-- **Git Pilot: Status Sync: Sync Now**
+- Polling every `autoSyncInterval` seconds (only with auto-sync on; paused while the window is in the background)
+- **Git Pilot: Issue & MR: Sync Now**
 
 #### Mutually exclusive statuses everywhere
 
 GitLab Premium has native *scoped labels* (`status::x`), which allow only one status label at a time. GitHub and GitLab Free don't have them, so Git Pilot does the same thing on the client side. When it sets a status, it first removes every existing label matching the prefix (`status:`, `status::` and spacing variants are treated as equivalent), keeps all other labels (`bug`, `frontend`, …), and then adds the new status. Behavior is identical on GitHub, GitLab CE and GitLab EE.
 
-On GitLab, updates are sent as `add_labels` / `remove_labels` diffs, so other labels that someone else changes at the same moment are not overwritten.
+Updates are sent as diffs (GitLab `add_labels` / `remove_labels`; GitHub add / remove label calls), so other labels that someone else changes at the same moment are not overwritten.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -105,12 +125,13 @@ On GitLab, updates are sent as `add_labels` / `remove_labels` diffs, so other la
 | `gitPilot.instanceUrl` | `""` | Base URL override for self-hosted GitLab / GitHub Enterprise, e.g. `https://gitlab.company.com`. Instances served under a sub-path (e.g. `https://host/gitlab`) are supported. |
 | `gitPilot.allowInsecureHttp` | `false` | User-level only. Allows sending tokens over plain `http://` (only with an explicit `http://` `instanceUrl`). Not recommended. |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Regex whose **first capturing group** is the issue IID/number. |
-| `gitPilot.statusSync.enabled` | `true` | Turns the module on or off (takes effect immediately). |
+| `gitPilot.statusSync.enabled` | `true` | Automatic status sync and the status bar item. Manual status / label changes in the sidebar work regardless. |
+| `gitPilot.statusSync.showSection` | `true` | Shows the *Issue & MR* sidebar section. Ignored (always shown) while it is the only section, i.e. `gitPilot.labels.enabled` is off. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | Use `status:` for regular labels or `status::` for GitLab scoped labels. |
 | `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Which side wins when statuses differ (see below). |
 | `gitPilot.statusSync.autoSyncInterval` | `120` | Polling interval in seconds. `0` turns polling off; the minimum is 10. |
-| `gitPilot.labels.enabled` | `true` | Shows the Labels section in the sidebar. |
-| `gitPilot.labels.groups` | `[]` | Grouping masks for *All labels*, e.g. `["status:*", "app:*"]` (`*` any characters, `?` one; `:` also matches `::`). Empty = group by the prefix before `:` / `::`. Unmatched labels go to **Other**. |
+| `gitPilot.labels.enabled` | `true` | Shows the Labels section (project label catalog) in the sidebar. |
+| `gitPilot.labels.groups` | `[]` | Grouping masks for *All labels*, e.g. `["status:*", "app:*"]` (`*` any characters, `?` one; `:` also matches `::`). Empty = group by the prefix before `:` / `::`. Labels of one group are mutually exclusive on an Issue/MR; unmatched labels go to **Other** and can be combined. |
 
 #### Source of truth
 
@@ -223,11 +244,12 @@ A cloned repository is untrusted input: it controls its remote URL, its branch n
 | --- | --- |
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
-| Git Pilot: Status Sync: Select Status | `gitPilot.statusSync.selectStatus` |
-| Git Pilot: Status Sync: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
+| Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
+| Git Pilot: Issue & MR: Sync Now | `gitPilot.statusSync.syncNow` |
 | Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
 
-Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.labels.copyName`. They act only on tree items created by Git Pilot.
+Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. They act only on tree items created by Git Pilot.
 
 Diagnostics are written to **Output → Git Pilot**. On startup, the log records the extension and VS Code versions, the environment, the effective settings (never tokens), the activation time and which modules started. Set the log level to *Trace* to see every API request; tokens are never logged.
 
@@ -246,6 +268,7 @@ src/
 │   ├── logger.ts              "Git Pilot" log output channel
 │   ├── commands.ts            Core commands (setToken, openInBrowser, openItem)
 │   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping)
+│   ├── labels.ts              Label groups (prefix / masks) and group exclusivity
 │   ├── ui/sectionView.ts      Sidebar section = TreeView over TreeNode roots
 │   ├── moduleRegistry.ts      Activates modules separately so one failing module can't break the others
 │   ├── config/settings.ts     Typed, validated access to settings
@@ -258,8 +281,8 @@ src/
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
     ├── index.ts               Module list (add new modules here)
-    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts
-    └── labels/                index.ts · labelsTree.ts · labelGroups.ts
+    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
+    └── labels/                index.ts · labelsTree.ts
 ```
 
 #### Adding a module
@@ -328,7 +351,7 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 **Git Pilot** — расширяемая «панель управления» разработчика для **GitLab (CE/EE)** и **GitHub** прямо в VS Code.
 
-Расширение состоит из небольшого ядра (API-клиенты, интеграция с git, аутентификация, шина событий) и подключаемых к нему функциональных модулей. В состав входят ядро, **боковая панель Git Pilot** с разделом **Labels** и модуль **Status Sync**. Будущие модули, например `dailyIssues`, `reviewRadar` и `pipelineWatcher`, подключаются к тому же ядру (и добавляют свои разделы в боковую панель) без изменения существующего кода.
+Расширение состоит из небольшого ядра (API-клиенты, интеграция с git, аутентификация, шина событий) и подключаемых к нему функциональных модулей. В состав входят ядро, **боковая панель Git Pilot** (разделы **Issue & MR** и **Labels**) и **Status Sync**. Будущие модули, например `dailyIssues`, `reviewRadar` и `pipelineWatcher`, подключаются к тому же ядру (и добавляют свои разделы в боковую панель) без изменения существующего кода.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -336,21 +359,41 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 ### Боковая панель
 
-Значок **Git Pilot** на панели действий (activity bar) открывает боковую панель из независимых разделов. Каждый раздел принадлежит модулю и показывается, только пока этот модуль включён (`gitPilot.<модуль>.enabled`); разделы можно сворачивать, переставлять и скрывать, как любые представления VS Code. В меню `…` каждого раздела есть *Open Issue / MR in Browser* и *Set Personal Access Token*.
+Значок **Git Pilot** на панели действий (activity bar) открывает боковую панель из разделов. Каждый раздел принадлежит модулю; разделы можно сворачивать, переставлять и скрывать, как любые представления VS Code. В меню `…` каждого раздела есть *Open Issue / MR in Browser* и *Set Personal Access Token*.
+
+#### Issue & MR
+
+Главный раздел — задача текущей ветки и её открытые MR/PR. Показывается всегда; настройка `gitPilot.statusSync.showSection` может скрыть его, только пока включён другой раздел (Labels).
+
+```text
+ISSUE & MR · #3                       [🏷 Change Status] [+ Add Labels] [⟳]
+ ✓ Status: doing — in sync · 12:03     [🏷]
+ ▾ Issue #3  Add a sidebar             [+] [↗]
+     status: doing    status           [🏷]
+     app:web          not on MR !5     [→] [⇄] [✕]
+     bug              not on MR !5     [→] [✕]
+ ▾ MR !5  Draft: sidebar               [+] [↗]
+     status: doing    status           [🏷]
+     app:api          not on Issue     [→] [⇄] [✕]
+ ▸ Statuses (4)                        ← ✓ применяет статус
+```
+
+- **Статус** всегда в один клик: строка-сводка, строки статусных меток, кнопка на панели раздела и элемент строки состояния открывают *Change Status*. При конфликте в сводке есть *Use Issue status* / *Use MR status* / *Choose another status…*. Метки статуса меняются только так — сразу у задачи и всех открытых MR/PR.
+- **`+` Add Labels** — на строке задачи/MR добавляет метки ей; на панели раздела сначала спрашивает, куда (задача, один MR/PR или везде). Предлагаются только метки, которые уже есть в проекте; Git Pilot не создаёт и не удаляет метки проекта.
+- **Группы взаимоисключающие.** Метки одной группы (`app:*`, см. [Labels](#ru-labels)) у задачи/MR могут быть только в одном экземпляре, как scoped labels: выбор `app:api` заменяет `app:web`, а в списке выбора можно отметить одну метку на группу. Метки без группы (**Other**) можно добавлять по несколько.
+- **`⇄` Replace** (только для меток из группы) — заменяет метку другой из той же группы.
+- **`✕` Remove** — снимает метку только с этой задачи/MR (сама метка в проекте остаётся); в уведомлении есть **Undo**.
+- **`→` Add Where Missing** — добавляет метку тем задаче/MR ветки, где её нет.
+
+Перед каждым изменением задача и MR перечитываются, а запись идёт минимальной разницей (добавить/снять), поэтому параллельные правки других людей не теряются.
+
+<a id="ru-labels"></a>
 
 #### Labels
 
-Обзор меток вокруг текущей ветки, только для чтения (`gitPilot.labels.enabled`):
+Каталог меток проекта (`gitPilot.labels.enabled`; в GitLab — вместе с метками родительских групп), сгруппированный по префиксу до `:` / `::` (`status:*`, `app:*`, …); метки без префикса попадают в **Other**. Метки, применённые к текущей задаче/MR, отмечены ✓, и видно, где они стоят (*Issue · MR !5*). Чтобы группировать по своим маскам и в своём порядке, задайте `gitPilot.labels.groups` (например, `["status:*", "app:*"]`); всё остальное попадёт в **Other**. Эти же группы определяют, какие метки взаимоисключающие в разделе *Issue & MR*.
 
-- **Issue #N** — метки задачи, метка статуса первой. Метка, которой нет у открытого MR/PR, помечена *not on MR !5*.
-- **MR !5 / PR #5** — по узлу на каждый открытый MR/PR с его метками; расхождения с задачей помечены *not on Issue*.
-- **All labels** — все метки проекта (в GitLab — вместе с метками родительских групп), сгруппированные по префиксу до `:` / `::` (`status:*`, `app:*`, …); метки без префикса попадают в группу **Other**. Применённые метки отмечены ✓, и видно, где они стоят (*Issue · MR !5*). Чтобы группировать по своим маскам и в своём порядке, задайте `gitPilot.labels.groups` (например, `["status:*", "app:*"]`); всё остальное попадёт в **Other**.
-
-Через контекстное меню метки можно скопировать её имя, а для метки статуса (при включённом Status Sync) — выбрать *Apply Status*, чтобы поставить её задаче и всем открытым MR/PR. Раздел загружает данные, только когда он виден, перезагружается при смене ветки, репозитория или токена и при возврате фокуса в окно (не чаще раза в минуту), а изменения меток, сделанные Status Sync, подхватывает без лишних запросов к API. Кнопка ⟳ перезагружает раздел.
-
-#### Status Sync
-
-То, что показывают подсказка строки состояния и окно *Select Status*: синхронизированы ли задача и её MR/PR (или конфликт — с действиями *Use Issue status* / *Use MR status* / *Choose another status…*), задача и каждый MR/PR с их статусами, а также список меток статуса, где кнопка ✓ применяет выбранную. На панели раздела: *Sync Now* и *Select Status*.
+Действия с меткой: `+` *Add Labels…*, пока метки нет у задачи или какого-то MR; `✕` *Remove Label*, пока она где-то стоит (снимает её; если она на нескольких — спросит откуда, есть Undo); *Apply Status* для меток статуса; *Copy Label Name*. Каталог загружается, только когда раздел виден, перезагружается при смене репозитория или токена, при возврате фокуса в окно (не чаще раза в минуту) и по кнопке ⟳; отметки «где применена» приходят из раздела Issue & MR без лишних запросов к API.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -358,7 +401,7 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 ### Status Sync
 
-Status Sync поддерживает одинаковые **метки статуса** (например, `status: todo`, `status::qa-passed`) у **задачи (Issue)** и её открытых **Merge Request** (GitLab) или **Pull Request** (GitHub). Синхронизация идёт автоматически, а статус можно сменить и вручную.
+Status Sync поддерживает одинаковые **метки статуса** (например, `status: todo`, `status::qa-passed`) у **задачи (Issue)** и её открытых **Merge Request** (GitLab) или **Pull Request** (GitHub). Синхронизация идёт автоматически, пока включена `gitPilot.statusSync.enabled` (она же управляет элементом в строке состояния); вручную в боковой панели статус можно сменить в любом случае.
 
 #### Как это работает
 
@@ -377,21 +420,21 @@ Status Sync поддерживает одинаковые **метки стат�
 | Синхронизировано | `$(tag) #142: status: qa-passed (MR !89)` |
 | Конфликт (режим `prompt`) | `$(warning) #142: todo ≠ MR: qa-passed` (жёлтый фон) |
 
-Нажмите на элемент в строке состояния, чтобы выбрать статус. В списке (QuickPick) есть все метки проекта, начинающиеся с вашего префикса, текущая отмечена `$(check)`. Там же быстрые действия: **Force Sync Now** (синхронизировать сейчас), **Open Issue/MR in Browser** (открыть в браузере) и **Update API Token** (обновить токен). Чтобы создать новую метку статуса, просто введите её название в поле.
+Нажмите на элемент в строке состояния, чтобы выбрать статус. В списке (QuickPick) есть все метки проекта, начинающиеся с вашего префикса, текущая отмечена `$(check)`. Там же быстрые действия: **Force Sync Now** (синхронизировать сейчас), **Open Issue/MR in Browser** (открыть в браузере) и **Update API Token** (обновить токен). В списке только метки статуса, которые уже есть в проекте, — новые создавайте в GitLab/GitHub.
 
 #### Когда запускается синхронизация
 
 - При активации расширения
 - При переключении ветки или репозитория
 - Когда окно VS Code снова получает фокус (не чаще раза в 30 с)
-- По таймеру каждые `autoSyncInterval` секунд (пока окно в фоне, опрос приостановлен)
-- Командой **Git Pilot: Status Sync: Sync Now**
+- По таймеру каждые `autoSyncInterval` секунд (только при включённой автосинхронизации; пока окно в фоне, опрос приостановлен)
+- Командой **Git Pilot: Issue & MR: Sync Now**
 
 #### Взаимоисключающие статусы на любой платформе
 
 В GitLab Premium есть встроенные *scoped labels* (`status::x`): у задачи может быть только одна метка с таким префиксом. В GitHub и GitLab Free их нет, поэтому Git Pilot делает то же самое на стороне клиента. При установке статуса он сначала удаляет все метки с этим префиксом (`status:`, `status::` и варианты с пробелами считаются одним и тем же), сохраняет остальные метки (`bug`, `frontend`, …) и только потом добавляет новый статус. Поведение одинаково в GitHub, GitLab CE и GitLab EE.
 
-В GitLab изменения отправляются как разница (`add_labels` / `remove_labels`), поэтому метки, которые кто-то меняет в тот же момент, не перезаписываются.
+Изменения отправляются как разница (в GitLab — `add_labels` / `remove_labels`, в GitHub — отдельные запросы на добавление и снятие меток), поэтому метки, которые кто-то меняет в тот же момент, не перезаписываются.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -405,12 +448,13 @@ Status Sync поддерживает одинаковые **метки стат�
 | `gitPilot.instanceUrl` | `""` | Базовый URL собственного GitLab / GitHub Enterprise, например `https://gitlab.company.com`. Поддерживаются инстансы по подпути (например, `https://host/gitlab`). |
 | `gitPilot.allowInsecureHttp` | `false` | Только на уровне пользователя. Разрешает отправлять токены по открытому `http://` (только вместе с явным `http://` в `instanceUrl`). Не рекомендуется. |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Регулярное выражение, **первая группа захвата** которого — номер (IID) задачи. |
-| `gitPilot.statusSync.enabled` | `true` | Включает или выключает модуль (применяется сразу). |
+| `gitPilot.statusSync.enabled` | `true` | Автоматическая синхронизация статуса и элемент в строке состояния. Ручная смена статуса и меток в боковой панели работает независимо от неё. |
+| `gitPilot.statusSync.showSection` | `true` | Показывает раздел *Issue & MR* в боковой панели. Не действует (раздел показан всегда), пока он единственный, то есть `gitPilot.labels.enabled` выключена. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | `status:` — для обычных меток, `status::` — для scoped labels в GitLab. |
 | `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Какая сторона побеждает при расхождении статусов (см. ниже). |
 | `gitPilot.statusSync.autoSyncInterval` | `120` | Интервал опроса в секундах. `0` отключает опрос; минимум — 10. |
-| `gitPilot.labels.enabled` | `true` | Показывает раздел Labels в боковой панели. |
-| `gitPilot.labels.groups` | `[]` | Маски группировки для *All labels*, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ; `:` совпадает и с `::`). Пусто — группировка по префиксу до `:` / `::`. Метки, не подошедшие ни под одну маску, попадают в **Other**. |
+| `gitPilot.labels.enabled` | `true` | Показывает раздел Labels (каталог меток проекта) в боковой панели. |
+| `gitPilot.labels.groups` | `[]` | Маски группировки для *All labels*, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ; `:` совпадает и с `::`). Пусто — группировка по префиксу до `:` / `::`. Метки одной группы взаимоисключающие у задачи/MR; не подошедшие ни под одну маску попадают в **Other** и могут сочетаться. |
 
 #### Источник истины (`sourceOfTruth`)
 
@@ -523,11 +567,12 @@ Git Pilot не читает код репозитория, не делает pus
 | --- | --- |
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
-| Git Pilot: Status Sync: Select Status | `gitPilot.statusSync.selectStatus` |
-| Git Pilot: Status Sync: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
+| Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
+| Git Pilot: Issue & MR: Sync Now | `gitPilot.statusSync.syncNow` |
 | Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
 
-Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.labels.copyName`. Они работают только с элементами дерева, созданными самим Git Pilot.
+Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. Они работают только с элементами дерева, созданными самим Git Pilot.
 
 Диагностика пишется в **Output → Git Pilot**. При запуске в лог попадают версии расширения и VS Code, окружение, действующие настройки (без токенов), время активации и список запущенных модулей. Чтобы видеть каждый запрос к API, выберите уровень логирования *Trace*. Токены в лог не пишутся никогда.
 
@@ -546,6 +591,7 @@ src/
 │   ├── logger.ts              Канал вывода «Git Pilot»
 │   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem)
 │   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown)
+│   ├── labels.ts              Группы меток (префикс / маски) и их взаимоисключение
 │   ├── ui/sectionView.ts      Раздел боковой панели = TreeView над корнями TreeNode
 │   ├── moduleRegistry.ts      Запускает модули изолированно: сбой одного не ломает остальные
 │   ├── config/settings.ts     Типизированный доступ к настройкам с проверкой значений
@@ -558,8 +604,8 @@ src/
 │       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
 └── modules/
     ├── index.ts               Список модулей (новые модули добавляются здесь)
-    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts
-    └── labels/                index.ts · labelsTree.ts · labelGroups.ts
+    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
+    └── labels/                index.ts · labelsTree.ts
 ```
 
 #### Как добавить модуль

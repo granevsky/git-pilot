@@ -1,5 +1,5 @@
 import type { EntityRef, ProjectLabel, SyncState, User } from '../types';
-import { BaseProvider, type EntityKind, ProviderError, isProviderError, stringLabels } from './baseProvider';
+import { BaseProvider, type EntityKind, ProviderError, isProviderError, labelDiff, stringLabels } from './baseProvider';
 
 // ----- GitHub REST v3 / GraphQL v4 payloads (only the fields we use) ----------
 
@@ -179,17 +179,32 @@ export class GitHubProvider extends BaseProvider {
     return this.toProjectLabels(await this.paginate<GhLabel>(`/repos/${this.repoRef}/labels`, { per_page: 100 }));
   }
 
-  protected async writeLabels(entity: EntityRef, _kind: EntityKind, _currentLabels: string[], nextLabels: string[]): Promise<string[]> {
+  protected async writeLabels(entity: EntityRef, _kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {
     // PRs share the issue labels endpoint on GitHub. projectRef comes from the server, so only a
     // strict `owner/repo` shape may enter the path.
     const ref = entity.projectRef;
     const repo = ref && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(ref) && !ref.split('/').some((s) => s === '.' || s === '..')
       ? ref.split('/').map(encodeURIComponent).join('/')
       : this.repoRef;
-    const res = await this.request<GhLabel[]>('PUT', `/repos/${repo}/issues/${entity.id}/labels`, {
-      body: { labels: nextLabels },
-    });
-    return Array.isArray(res.data) ? stringLabels(res.data.map((l) => l?.name)) : nextLabels;
+    const base = `/repos/${repo}/issues/${entity.id}/labels`;
+    const toNames = (data: unknown) => (Array.isArray(data) ? stringLabels(data.map((l: GhLabel | null) => l?.name)) : null);
+
+    // Minimal diff instead of PUT (replace-all), so concurrent edits to other labels survive.
+    const { add, remove } = labelDiff(currentLabels, nextLabels);
+    let labels: string[] | null = null;
+    for (const name of remove) {
+      try {
+        labels = toNames((await this.request<GhLabel[]>('DELETE', `${base}/${encodeURIComponent(name)}`)).data) ?? labels;
+      } catch (err) {
+        if (!isProviderError(err, 'notFound')) {
+          throw err; // 404 = already removed: nothing to do
+        }
+      }
+    }
+    if (add.length) {
+      labels = toNames((await this.request<GhLabel[]>('POST', base, { body: { labels: add } })).data) ?? labels;
+    }
+    return labels ?? nextLabels;
   }
 
   private async fetchStatusLabels(): Promise<string[]> {

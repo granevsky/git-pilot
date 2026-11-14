@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { isStatusLabel, sameStatus, statusValue } from '../../core/providers/baseProvider';
+import { sameStatus, statusValue } from '../../core/providers/baseProvider';
 import { code, escapeMd, mrRef, mrTerm } from '../../core/format';
 import type { EntityRef, Platform, SyncState } from '../../core/types';
 
@@ -31,30 +31,11 @@ export const COMMANDS = {
   syncNow: 'gitPilot.statusSync.syncNow',
   openInBrowser: 'gitPilot.openInBrowser',
   applyStatus: 'gitPilot.statusSync.applyStatus',
+  addLabel: 'gitPilot.statusSync.addLabel',
+  removeLabel: 'gitPilot.statusSync.removeLabel',
+  replaceLabel: 'gitPilot.statusSync.replaceLabel',
+  copyLabel: 'gitPilot.statusSync.copyLabelToOthers',
 } as const;
-
-// ---------------------------------------------------------------------------
-// Formatting helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Turns user input into a full status label. Input that already carries the prefix is kept
- * as-is; otherwise the prefix is prepended, following the spacing style of existing labels
- * (`status: todo` vs `status:todo`). Scoped `::` prefixes never get a space.
- */
-export function composeStatusLabel(input: string, prefix: string, existing: readonly string[]): string {
-  const text = input.trim();
-  if (isStatusLabel(text, prefix)) {
-    return text;
-  }
-  const p = prefix.trimEnd();
-  let space = !p.endsWith('::') && p.endsWith(':');
-  const sample = existing.find((l) => l.toLowerCase().startsWith(p.toLowerCase()));
-  if (sample) {
-    space = /^\s/.test(sample.slice(p.length));
-  }
-  return `${p}${space ? ' ' : ''}${text}`;
-}
 
 // ---------------------------------------------------------------------------
 // Status bar
@@ -172,7 +153,7 @@ export class StatusBarUi implements vscode.Disposable {
 
   /**
    * Shows available status labels (with `$(check)` on the current one) plus quick actions.
-   * Typing a value not in the list offers to apply it as a new label.
+   * Only labels that exist in the project are offered; new labels are never created.
    */
   async pickStatus(state: SyncState, conflict?: { issueStatus: string; mrStatus: string; mr: EntityRef }): Promise<StatusPickResult | undefined> {
     type Item = vscode.QuickPickItem & { result?: StatusPickResult };
@@ -214,7 +195,7 @@ export class StatusBarUi implements vscode.Disposable {
       { label: 'Status labels', kind: vscode.QuickPickItemKind.Separator },
       ...(statusItems.length
         ? statusItems
-        : [{ label: `$(info) No labels starting with "${prefix}" found — type to create one`, alwaysShow: true } as Item]),
+        : [{ label: `$(info) No labels starting with "${prefix}" found in the project`, alwaysShow: true } as Item]),
       { label: 'Actions', kind: vscode.QuickPickItemKind.Separator },
       ...actionItems,
     ];
@@ -223,27 +204,9 @@ export class StatusBarUi implements vscode.Disposable {
     qp.title = conflict
       ? `Resolve status conflict for #${state.issue.id}`
       : `Status for #${state.issue.id}${state.mergeRequests.length ? ` and ${state.mergeRequests.length} open ${term}` : ''}`;
-    qp.placeholder = `Select a status to apply to the issue and all open ${term}s, or type a new one`;
+    qp.placeholder = `Select a status to apply to the issue and all open ${term}s`;
     qp.matchOnDescription = true;
     qp.items = baseItems;
-
-    qp.onDidChangeValue((value) => {
-      const text = value.trim();
-      if (!text) {
-        qp.items = baseItems;
-        return;
-      }
-      // GitLab splits label lists on commas; control chars and very long names are rejected by both APIs.
-      if (text.length > 100 || /[,\u0000-\u001f\u007f]/.test(text)) {
-        qp.items = [{ label: '$(error) Label names cannot contain commas or control characters (max 100 chars)', alwaysShow: true }, ...baseItems];
-        return;
-      }
-      const label = composeStatusLabel(text, prefix, state.availableStatusLabels);
-      const exists = state.availableStatusLabels.some((l) => sameStatus(l, label));
-      qp.items = exists
-        ? baseItems
-        : [{ label: `$(add) Apply new label "${label}"`, alwaysShow: true, result: { type: 'status', label } }, ...baseItems];
-    });
 
     return new Promise<StatusPickResult | undefined>((resolve) => {
       let done = false;

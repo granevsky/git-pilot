@@ -15,6 +15,8 @@ export interface TreeNodeSpec {
   url?: string;
   /** Free-form payload for item commands (e.g. a label name). */
   value?: string;
+  /** Key of the Issue/MR the node belongs to (for item commands acting on that entity). */
+  entity?: string;
   children?: TreeNode[];
   /** Initial state for nodes with children (default: expanded). */
   expanded?: boolean;
@@ -29,11 +31,13 @@ export class TreeNode {
   readonly children: readonly TreeNode[];
   readonly url: string | undefined;
   readonly value: string | undefined;
+  readonly entity: string | undefined;
 
   constructor(spec: TreeNodeSpec) {
     this.children = spec.children ?? [];
     this.url = spec.url;
     this.value = spec.value;
+    this.entity = spec.entity;
 
     const state = this.children.length
       ? spec.expanded === false

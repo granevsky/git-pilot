@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import { extractIssueNumber } from '../../core/git/gitService';
 import { errorMessage } from '../../core/logger';
-import { isProviderError, sameStatus } from '../../core/providers/baseProvider';
-import type { EntityRef, GitPlatformProvider, PilotContext, RepoContext, SyncState } from '../../core/types';
+import { exclusiveRemovals } from '../../core/labels';
+import { isProviderError, isStatusLabel, sameStatus } from '../../core/providers/baseProvider';
+import type { EntityKind, EntityRef, GitPlatformProvider, PilotContext, RepoContext, SyncState } from '../../core/types';
 import { mrRef, mrTerm } from '../../core/format';
 import type { SyncViewState } from './statusBarUi';
 
@@ -15,6 +16,31 @@ interface Conflict {
   issueStatus: string;
   mrStatus: string;
   mr: EntityRef;
+}
+
+/** Stable key of an Issue/MR inside a SyncState (`issue`, `mr:<projectRef>!<id>`). */
+export function entityKey(kind: EntityKind, entity: EntityRef): string {
+  return kind === 'issue' ? 'issue' : `mr:${entity.projectRef ?? ''}!${entity.id}`;
+}
+
+export function findEntity(state: SyncState, key: string): { kind: EntityKind; entity: EntityRef } | null {
+  if (key === 'issue') {
+    return { kind: 'issue', entity: state.issue };
+  }
+  const mr = state.mergeRequests.find((m) => entityKey('mr', m) === key);
+  return mr ? { kind: 'mr', entity: mr } : null;
+}
+
+/** All Issue/MR keys of a state, Issue first. */
+export function entityKeys(state: SyncState): string[] {
+  return ['issue', ...state.mergeRequests.map((m) => entityKey('mr', m))];
+}
+
+/** One label change on one Issue/MR. */
+export interface LabelEdit {
+  entity: string;
+  add: string[];
+  remove: string[];
 }
 
 /** Returns the Issue-vs-MR conflict (if any): both sides carry a status and they differ. */
@@ -31,7 +57,8 @@ export function findConflict(state: SyncState): Conflict | null {
 /**
  * Drives Status Sync: listens to triggers (activation, branch switch, window focus,
  * polling), fetches SyncState, reconciles divergent labels according to
- * `gitPilot.statusSync.sourceOfTruth`, and publishes a view model for the UI.
+ * `gitPilot.statusSync.sourceOfTruth` (only while auto-sync — `gitPilot.statusSync.enabled` —
+ * is on), and publishes a view model for the UI. Manual status/label edits always work.
  *
  * All network work runs through a single exclusive queue so syncs and manual
  * status changes never interleave.
@@ -82,7 +109,7 @@ export class SyncEngine implements vscode.Disposable {
       }),
       eventBus.onDidChangeAuth(() => this.schedule('auth')),
       eventBus.onDidChangeConfig((e) => {
-        if (e.affectsConfiguration('gitPilot.statusSync.autoSyncInterval')) {
+        if (e.affectsConfiguration('gitPilot.statusSync.autoSyncInterval') || e.affectsConfiguration('gitPilot.statusSync.enabled')) {
           this.restartPolling();
         }
         this.schedule('config');
@@ -97,21 +124,14 @@ export class SyncEngine implements vscode.Disposable {
     this.schedule('activation', 0);
   }
 
-  stop(): void {
-    this.started = false;
-    this.clearTimers();
-    vscode.Disposable.from(...this.disposables.splice(0)).dispose();
-    this.lastState = null;
-    this.setView({ kind: 'disabled' });
-  }
-
   private restartPolling(): void {
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
     }
-    const seconds = this.ctx.settings.statusSync.autoSyncInterval;
-    if (seconds > 0) {
+    const { enabled, autoSyncInterval: seconds } = this.ctx.settings.statusSync;
+    // Polling only serves auto-sync; with auto-sync off the section still refreshes on branch/focus.
+    if (enabled && seconds > 0) {
       this.pollTimer = setInterval(() => {
         // Don't burn API quota while VS Code is in the background; focus triggers a catch-up sync.
         if (vscode.window.state.focused) {
@@ -190,6 +210,68 @@ export class SyncEngine implements vscode.Disposable {
     });
   }
 
+  /**
+   * Applies label edits to the Issue / MRs of the current branch (fresh state is fetched first).
+   * Status labels are never touched here — they go through `applyStatus`. Adding a label of a group
+   * (`app:*`) replaces the entity's other label of that group. Returns `false` if nothing was written.
+   */
+  editLabels(edits: readonly LabelEdit[]): Promise<boolean> {
+    return this.exclusive(async () => {
+      const resolved = await this.resolveTarget();
+      if (!resolved) {
+        void vscode.window.showWarningMessage('Git Pilot: no linked issue for the current branch.');
+        return false;
+      }
+      const { provider, branch, issueNumber, repo } = resolved;
+      const { labelPrefix: prefix } = this.ctx.settings.statusSync;
+      const masks = this.ctx.settings.labels.groups;
+      const notStatus = (l: string) => !isStatusLabel(l, prefix);
+      try {
+        const fresh = await provider.getSyncState(issueNumber, branch);
+        if (!fresh) {
+          this.lastState = null;
+          this.setView({ kind: 'issueNotFound', issueNumber, projectPath: provider.projectPath });
+          return false;
+        }
+        const updates = new Map<string, EntityRef>();
+        await Promise.all(
+          edits.map(async (edit) => {
+            const found = findEntity(fresh, edit.entity);
+            if (!found) {
+              return;
+            }
+            const add = edit.add.filter(notStatus);
+            const remove = [...edit.remove, ...exclusiveRemovals(found.entity.allLabels, add, masks)].filter(notStatus);
+            updates.set(edit.entity, await provider.editLabels(found.entity, found.kind, add, remove));
+          }),
+        );
+        if (!this.isCurrent(repo)) {
+          return false;
+        }
+        // Status labels were not touched, so isSynced / effectiveStatus stay valid.
+        this.commit({
+          ...fresh,
+          issue: updates.get('issue') ?? fresh.issue,
+          mergeRequests: fresh.mergeRequests.map((m) => updates.get(entityKey('mr', m)) ?? m),
+        });
+        return updates.size > 0;
+      } catch (err) {
+        this.handleError(err, issueNumber, true);
+        return false;
+      }
+    });
+  }
+
+  /** Fetches state on demand (e.g. a sidebar action before the first sync finished). */
+  async ensureState(): Promise<SyncState | null> {
+    if (!this.lastState) {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Git Pilot: fetching issue…' }, () =>
+        this.requestSync('manual'),
+      );
+    }
+    return this.lastState;
+  }
+
   // -------------------------------------------------------------------------
   // Core sync
   // -------------------------------------------------------------------------
@@ -216,11 +298,6 @@ export class SyncEngine implements vscode.Disposable {
       return;
     }
     const settings = this.ctx.settings.statusSync;
-    if (!settings.enabled) {
-      this.setView({ kind: 'disabled' });
-      return;
-    }
-
     const res = await this.ctx.providerManager.resolve();
     switch (res.status) {
       case 'noRepository':
@@ -273,7 +350,7 @@ export class SyncEngine implements vscode.Disposable {
         this.setView({ kind: 'issueNotFound', issueNumber, projectPath: provider.projectPath });
         return;
       }
-      const reconciled = await this.reconcile(provider, state);
+      const reconciled = settings.enabled ? await this.reconcile(provider, state) : state;
       if (!this.isCurrent(repo)) {
         return;
       }
@@ -305,7 +382,6 @@ export class SyncEngine implements vscode.Disposable {
   private commit(state: SyncState): void {
     this.lastState = state;
     this.lastSyncAt = Date.now();
-    this.ctx.eventBus.emit('syncStateChanged', state);
     const conflict = state.isSynced ? null : findConflict(state);
     if (!conflict) {
       this.promptedConflictKey = null;
@@ -314,7 +390,7 @@ export class SyncEngine implements vscode.Disposable {
     }
     this.setView({ kind: 'conflict', state, ...conflict, lastSyncAt: new Date(this.lastSyncAt) });
     const key = `${state.projectPath}#${state.issue.id}|${conflict.issueStatus}|${conflict.mrStatus}`;
-    if (this.promptedConflictKey !== key) {
+    if (this.ctx.settings.statusSync.enabled && this.promptedConflictKey !== key) {
       this.promptedConflictKey = key;
       void this.promptConflict(state, conflict);
     }
@@ -368,6 +444,12 @@ export class SyncEngine implements vscode.Disposable {
   private setView(view: SyncViewState): void {
     this.view = view;
     this._onDidChangeView.fire(view);
+    // Share Issue/MR labels with other modules; transient states (syncing, error) keep the last value.
+    if (view.kind === 'synced' || view.kind === 'conflict') {
+      this.ctx.eventBus.emit('syncStateChanged', view.state);
+    } else if (view.kind !== 'syncing' && view.kind !== 'error') {
+      this.ctx.eventBus.emit('syncStateChanged', null);
+    }
   }
 
   dispose(): void {

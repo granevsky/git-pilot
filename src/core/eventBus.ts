@@ -18,8 +18,11 @@ export interface PilotEvents {
   branchChanged: BranchChangeEvent;
   configChanged: vscode.ConfigurationChangeEvent;
   authChanged: AuthChangeEvent;
-  /** Fresh Issue/MR state published by Status Sync after every sync or status change. */
-  syncStateChanged: SyncState;
+  /**
+   * Issue/MR state published by Status Sync after every sync or label change; `null` when the
+   * current branch has no (loadable) issue any more.
+   */
+  syncStateChanged: SyncState | null;
 }
 
 type EmitterMap = { [K in keyof PilotEvents]: vscode.EventEmitter<PilotEvents[K]> };

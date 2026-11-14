@@ -14,7 +14,10 @@ const MAX_LABEL_GROUPS = 50;
 const MAX_LABEL_MASK_LENGTH = 100;
 
 export interface StatusSyncSettings {
+  /** Automatic synchronization + status bar item. Manual status/label editing works regardless. */
   enabled: boolean;
+  /** Show the "Issue & MR" sidebar section (forced on in package.json when no other section is enabled). */
+  showSection: boolean;
   labelPrefix: string;
   sourceOfTruth: SourceOfTruth;
   /** Seconds; 0 disables polling. */
@@ -117,6 +120,7 @@ export class SettingsManager implements vscode.Disposable {
     const interval = Number(cfg.get<number>('statusSync.autoSyncInterval', 120));
     return {
       enabled: cfg.get<boolean>('statusSync.enabled', true),
+      showSection: cfg.get<boolean>('statusSync.showSection', true),
       labelPrefix: cfg.get<string>('statusSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
       sourceOfTruth: sot === 'issue' || sot === 'prompt' ? sot : 'mr',
       autoSyncInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,

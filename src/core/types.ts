@@ -14,6 +14,9 @@ export type Platform = 'gitlab' | 'github';
 
 export type EntityState = 'opened' | 'closed' | 'merged';
 
+/** Which side an EntityRef is on: the Issue or one of its MRs/PRs. */
+export type EntityKind = 'issue' | 'mr';
+
 /** A parsed git remote (`origin` by default). */
 export interface RemoteInfo {
   /** Remote name, e.g. `origin`. */
@@ -94,6 +97,11 @@ export interface GitPlatformProvider {
   getCurrentUser(): Promise<User>;
   getSyncState(issueNumber: number, branchName: string): Promise<SyncState | null>;
   setUnifiedStatus(state: SyncState, newStatusLabel: string): Promise<SyncState>;
+  /**
+   * Adds/removes labels on one Issue or MR/PR as a minimal diff (other labels and concurrent edits
+   * are kept). Labels must already exist in the project. Returns the entity with server-reported labels.
+   */
+  editLabels(entity: EntityRef, kind: EntityKind, add: readonly string[], remove: readonly string[]): Promise<EntityRef>;
 
   // Extensibility hooks for future modules:
   getAssignedIssues?(labels?: string[]): Promise<EntityRef[]>;

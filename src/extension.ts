@@ -44,7 +44,7 @@ function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: 
       `allowInsecureHttp=${settings.allowInsecureHttp}, branchIssueRegex=${settings.branchIssueRegexSource}`,
   );
   logger.info(
-    `Status Sync: enabled=${sync.enabled}, labelPrefix="${sync.labelPrefix}", sourceOfTruth=${sync.sourceOfTruth}, ` +
+    `Status Sync: enabled=${sync.enabled}, showSection=${sync.showSection}, labelPrefix="${sync.labelPrefix}", sourceOfTruth=${sync.sourceOfTruth}, ` +
       `autoSyncInterval=${sync.autoSyncInterval ? `${sync.autoSyncInterval}s` : 'off'}`,
   );
   logger.info(`Labels: enabled=${labels.enabled}, groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`);
