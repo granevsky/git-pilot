@@ -3,7 +3,8 @@ import { extractIssueNumber } from '../../core/git/gitService';
 import { errorMessage } from '../../core/logger';
 import { isProviderError, sameStatus } from '../../core/providers/baseProvider';
 import type { EntityRef, GitPlatformProvider, PilotContext, RepoContext, SyncState } from '../../core/types';
-import { mrRef, mrTerm, type SyncViewState } from './statusBarUi';
+import { mrRef, mrTerm } from '../../core/format';
+import type { SyncViewState } from './statusBarUi';
 
 export type SyncReason = 'activation' | 'branch' | 'focus' | 'poll' | 'manual' | 'config' | 'auth';
 
@@ -304,6 +305,7 @@ export class SyncEngine implements vscode.Disposable {
   private commit(state: SyncState): void {
     this.lastState = state;
     this.lastSyncAt = Date.now();
+    this.ctx.eventBus.emit('syncStateChanged', state);
     const conflict = state.isSynced ? null : findConflict(state);
     if (!conflict) {
       this.promptedConflictKey = null;

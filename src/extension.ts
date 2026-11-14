@@ -29,6 +29,7 @@ function modeName(mode: vscode.ExtensionMode): string {
 function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: SettingsManager): void {
   const version = String(context.extension.packageJSON.version ?? 'unknown');
   const sync = settings.statusSync;
+  const labels = settings.labels;
   logger.info(`===== Git Pilot v${version} starting =====`);
   logger.info(
     `Environment: VS Code ${vscode.version} (${vscode.env.appName}, ${vscode.env.uiKind === vscode.UIKind.Web ? 'web' : 'desktop'}), ` +
@@ -46,6 +47,7 @@ function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: 
     `Status Sync: enabled=${sync.enabled}, labelPrefix="${sync.labelPrefix}", sourceOfTruth=${sync.sourceOfTruth}, ` +
       `autoSyncInterval=${sync.autoSyncInterval ? `${sync.autoSyncInterval}s` : 'off'}`,
   );
+  logger.info(`Labels: enabled=${labels.enabled}, groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`);
 }
 
 /**

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { isStatusLabel, sameStatus, statusValue } from '../../core/providers/baseProvider';
+import { code, escapeMd, mrRef, mrTerm } from '../../core/format';
 import type { EntityRef, Platform, SyncState } from '../../core/types';
 
 // ---------------------------------------------------------------------------
@@ -29,23 +30,12 @@ export const COMMANDS = {
   selectStatus: 'gitPilot.statusSync.selectStatus',
   syncNow: 'gitPilot.statusSync.syncNow',
   openInBrowser: 'gitPilot.openInBrowser',
+  applyStatus: 'gitPilot.statusSync.applyStatus',
 } as const;
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
-
-export function mrTerm(platform: Platform): 'MR' | 'PR' {
-  return platform === 'gitlab' ? 'MR' : 'PR';
-}
-
-export function mrRef(platform: Platform, id: number): string {
-  return platform === 'gitlab' ? `!${id}` : `#${id}`;
-}
-
-function escapeMd(text: string): string {
-  return text.replace(/[\\`*_{}[\]()#+\-.!|<>]/g, '\\$&');
-}
 
 /**
  * Turns user input into a full status label. Input that already carries the prefix is kept
@@ -64,11 +54,6 @@ export function composeStatusLabel(input: string, prefix: string, existing: read
     space = /^\s/.test(sample.slice(p.length));
   }
   return `${p}${space ? ' ' : ''}${text}`;
-}
-
-function code(text: string | null): string {
-  // Server-supplied label: neutralize backticks and line breaks so it cannot escape inline code.
-  return text ? `\`${text.replace(/`/g, "'").replace(/[\u0000-\u001f\u007f]+/g, ' ')}\`` : '_no status_';
 }
 
 // ---------------------------------------------------------------------------

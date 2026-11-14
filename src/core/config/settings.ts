@@ -10,6 +10,8 @@ export type SourceOfTruth = 'mr' | 'issue' | 'prompt';
 export const DEFAULT_BRANCH_ISSUE_REGEX = '(?:^|/|-)(\\d+)(?:-|_|$)';
 export const DEFAULT_LABEL_PREFIX = 'status:';
 const MAX_REGEX_LENGTH = 300;
+const MAX_LABEL_GROUPS = 50;
+const MAX_LABEL_MASK_LENGTH = 100;
 
 export interface StatusSyncSettings {
   enabled: boolean;
@@ -17,6 +19,12 @@ export interface StatusSyncSettings {
   sourceOfTruth: SourceOfTruth;
   /** Seconds; 0 disables polling. */
   autoSyncInterval: number;
+}
+
+export interface LabelsSettings {
+  enabled: boolean;
+  /** Grouping masks such as `status:*`; empty = group automatically by the prefix before `:`/`::`. */
+  groups: string[];
 }
 
 /**
@@ -112,6 +120,20 @@ export class SettingsManager implements vscode.Disposable {
       labelPrefix: cfg.get<string>('statusSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
       sourceOfTruth: sot === 'issue' || sot === 'prompt' ? sot : 'mr',
       autoSyncInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,
+    };
+  }
+
+  get labels(): LabelsSettings {
+    const cfg = this.config;
+    const raw = cfg.get<unknown>('labels.groups', []);
+    const groups = (Array.isArray(raw) ? raw : [])
+      .filter((g): g is string => typeof g === 'string')
+      .map((g) => g.trim())
+      .filter((g) => g.length > 0 && g.length <= MAX_LABEL_MASK_LENGTH)
+      .slice(0, MAX_LABEL_GROUPS);
+    return {
+      enabled: cfg.get<boolean>('labels.enabled', true),
+      groups,
     };
   }
 

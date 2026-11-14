@@ -13,6 +13,7 @@
 
 **Contents:**
 [Overview](#en-overview) ·
+[Sidebar](#en-sidebar) ·
 [Status Sync](#en-status-sync) ·
 [Configuration](#en-configuration) ·
 [Authentication](#en-authentication) ([token permissions](#en-token-permissions)) ·
@@ -27,7 +28,29 @@
 
 **Git Pilot** is an extensible developer cockpit for **GitLab (CE/EE)** and **GitHub** inside VS Code.
 
-It's built as a small core platform (API clients, git integration, auth, event bus) with feature modules plugged in on top. Phase 1 ships the core and the first module, **Status Sync**. Future modules such as `dailyIssues`, `reviewRadar`, `pipelineWatcher` and sidebar tree views plug into the same core without changing existing code.
+It's built as a small core platform (API clients, git integration, auth, event bus) with feature modules plugged in on top. It ships the core, the **Git Pilot sidebar** with the **Labels** section, and the **Status Sync** module. Future modules such as `dailyIssues`, `reviewRadar` and `pipelineWatcher` plug into the same core (and add their own sidebar sections) without changing existing code.
+
+<sub>[↑ Contents](#en) · [Русский](#ru)</sub>
+
+<a id="en-sidebar"></a>
+
+### Sidebar
+
+The **Git Pilot** icon in the activity bar opens a sidebar made of independent sections. Each section belongs to a module and is shown only while that module is enabled (`gitPilot.<module>.enabled`); sections can be collapsed, reordered or hidden like any VS Code view. Every section has *Open Issue / MR in Browser* and *Set Personal Access Token* in its `…` menu.
+
+#### Labels
+
+A read-only overview of the labels around the current branch (`gitPilot.labels.enabled`):
+
+- **Issue #N** — the issue's labels, status label first. A label missing on an open MR/PR is marked *not on MR !5*.
+- **MR !5 / PR #5** — one node per open MR/PR with its labels, marked *not on Issue* where they differ.
+- **All labels** — every project label (GitLab: including ancestor group labels), grouped by the prefix before `:` / `::` (`status:*`, `app:*`, …); labels without a prefix go to **Other**. Applied labels get a ✓ and show where they are applied (*Issue · MR !5*). Set `gitPilot.labels.groups` (e.g. `["status:*", "app:*"]`) to group by your own masks in your own order; everything else goes to **Other**.
+
+Right-click a label to copy its name; on a status label (with Status Sync enabled) *Apply Status* sets it on the issue and all open MRs/PRs. The section loads data only while it is visible, reloads on branch / repository / token changes and when the window regains focus (at most once a minute), and picks up label changes made by Status Sync without extra API calls. The ⟳ button reloads it.
+
+#### Status Sync
+
+What the status bar tooltip and the *Select Status* picker show: whether the issue and its MRs/PRs are in sync (or the conflict, with *Use Issue status* / *Use MR status* / *Choose another status…*), the issue and each MR/PR with its status, and the list of status labels, where the ✓ button applies one. Toolbar: *Sync Now*, *Select Status*.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -86,6 +109,8 @@ On GitLab, updates are sent as `add_labels` / `remove_labels` diffs, so other la
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | Use `status:` for regular labels or `status::` for GitLab scoped labels. |
 | `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Which side wins when statuses differ (see below). |
 | `gitPilot.statusSync.autoSyncInterval` | `120` | Polling interval in seconds. `0` turns polling off; the minimum is 10. |
+| `gitPilot.labels.enabled` | `true` | Shows the Labels section in the sidebar. |
+| `gitPilot.labels.groups` | `[]` | Grouping masks for *All labels*, e.g. `["status:*", "app:*"]` (`*` any characters, `?` one; `:` also matches `::`). Empty = group by the prefix before `:` / `::`. Unmatched labels go to **Other**. |
 
 #### Source of truth
 
@@ -200,6 +225,9 @@ A cloned repository is untrusted input: it controls its remote URL, its branch n
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 | Git Pilot: Status Sync: Select Status | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Status Sync: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
+
+Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.labels.copyName`. They act only on tree items created by Git Pilot.
 
 Diagnostics are written to **Output → Git Pilot**. On startup, the log records the extension and VS Code versions, the environment, the effective settings (never tokens), the activation time and which modules started. Set the log level to *Trace* to see every API request; tokens are never logged.
 
@@ -214,9 +242,11 @@ src/
 ├── extension.ts               Entry point: builds PilotContext, registers core commands, activates modules
 ├── core/
 │   ├── types.ts               Domain models + PilotModule / GitPlatformProvider contracts
-│   ├── eventBus.ts            Typed events: repoChanged, branchChanged, configChanged, authChanged
+│   ├── eventBus.ts            Typed events: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
 │   ├── logger.ts              "Git Pilot" log output channel
-│   ├── commands.ts            Core commands (setToken, openInBrowser)
+│   ├── commands.ts            Core commands (setToken, openInBrowser, openItem)
+│   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping)
+│   ├── ui/sectionView.ts      Sidebar section = TreeView over TreeNode roots
 │   ├── moduleRegistry.ts      Activates modules separately so one failing module can't break the others
 │   ├── config/settings.ts     Typed, validated access to settings
 │   ├── config/secrets.ts      Per-host PAT storage (SecretStorage)
@@ -228,7 +258,8 @@ src/
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
     ├── index.ts               Module list (add new modules here)
-    └── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts
+    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts
+    └── labels/                index.ts · labelsTree.ts · labelGroups.ts
 ```
 
 #### Adding a module
@@ -246,10 +277,12 @@ export class DailyIssuesModule implements PilotModule {
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new StatusSyncModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), () => new DailyIssuesModule()];
 ```
 
 Modules don't call each other. They communicate only through the `EventBus` and the shared core services in `PilotContext`.
+
+To add a sidebar section, declare a view in `contributes.views.gitPilot` of `package.json` with `"when": "config.gitPilot.<moduleId>.enabled"`, then render it with `new SectionView('<viewId>')` and `TreeNode`s from `core/ui/sectionView.ts`. Item commands receive the `TreeNode`; trust only nodes (`instanceof TreeNode`) and keep tooltips plain text.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -280,6 +313,7 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 **Содержание:**
 [Обзор](#ru-overview) ·
+[Боковая панель](#ru-sidebar) ·
 [Status Sync](#ru-status-sync) ·
 [Настройки](#ru-configuration) ·
 [Аутентификация](#ru-authentication) ([права токена](#ru-token-permissions)) ·
@@ -294,7 +328,29 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 **Git Pilot** — расширяемая «панель управления» разработчика для **GitLab (CE/EE)** и **GitHub** прямо в VS Code.
 
-Расширение состоит из небольшого ядра (API-клиенты, интеграция с git, аутентификация, шина событий) и подключаемых к нему функциональных модулей. В первую версию входят ядро и первый модуль — **Status Sync**. Будущие модули, например `dailyIssues`, `reviewRadar`, `pipelineWatcher` и панели в боковой панели, подключаются к тому же ядру без изменения существующего кода.
+Расширение состоит из небольшого ядра (API-клиенты, интеграция с git, аутентификация, шина событий) и подключаемых к нему функциональных модулей. В состав входят ядро, **боковая панель Git Pilot** с разделом **Labels** и модуль **Status Sync**. Будущие модули, например `dailyIssues`, `reviewRadar` и `pipelineWatcher`, подключаются к тому же ядру (и добавляют свои разделы в боковую панель) без изменения существующего кода.
+
+<sub>[↑ Содержание](#ru) · [English](#en)</sub>
+
+<a id="ru-sidebar"></a>
+
+### Боковая панель
+
+Значок **Git Pilot** на панели действий (activity bar) открывает боковую панель из независимых разделов. Каждый раздел принадлежит модулю и показывается, только пока этот модуль включён (`gitPilot.<модуль>.enabled`); разделы можно сворачивать, переставлять и скрывать, как любые представления VS Code. В меню `…` каждого раздела есть *Open Issue / MR in Browser* и *Set Personal Access Token*.
+
+#### Labels
+
+Обзор меток вокруг текущей ветки, только для чтения (`gitPilot.labels.enabled`):
+
+- **Issue #N** — метки задачи, метка статуса первой. Метка, которой нет у открытого MR/PR, помечена *not on MR !5*.
+- **MR !5 / PR #5** — по узлу на каждый открытый MR/PR с его метками; расхождения с задачей помечены *not on Issue*.
+- **All labels** — все метки проекта (в GitLab — вместе с метками родительских групп), сгруппированные по префиксу до `:` / `::` (`status:*`, `app:*`, …); метки без префикса попадают в группу **Other**. Применённые метки отмечены ✓, и видно, где они стоят (*Issue · MR !5*). Чтобы группировать по своим маскам и в своём порядке, задайте `gitPilot.labels.groups` (например, `["status:*", "app:*"]`); всё остальное попадёт в **Other**.
+
+Через контекстное меню метки можно скопировать её имя, а для метки статуса (при включённом Status Sync) — выбрать *Apply Status*, чтобы поставить её задаче и всем открытым MR/PR. Раздел загружает данные, только когда он виден, перезагружается при смене ветки, репозитория или токена и при возврате фокуса в окно (не чаще раза в минуту), а изменения меток, сделанные Status Sync, подхватывает без лишних запросов к API. Кнопка ⟳ перезагружает раздел.
+
+#### Status Sync
+
+То, что показывают подсказка строки состояния и окно *Select Status*: синхронизированы ли задача и её MR/PR (или конфликт — с действиями *Use Issue status* / *Use MR status* / *Choose another status…*), задача и каждый MR/PR с их статусами, а также список меток статуса, где кнопка ✓ применяет выбранную. На панели раздела: *Sync Now* и *Select Status*.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -353,6 +409,8 @@ Status Sync поддерживает одинаковые **метки стат�
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | `status:` — для обычных меток, `status::` — для scoped labels в GitLab. |
 | `gitPilot.statusSync.sourceOfTruth` | `"mr"` | Какая сторона побеждает при расхождении статусов (см. ниже). |
 | `gitPilot.statusSync.autoSyncInterval` | `120` | Интервал опроса в секундах. `0` отключает опрос; минимум — 10. |
+| `gitPilot.labels.enabled` | `true` | Показывает раздел Labels в боковой панели. |
+| `gitPilot.labels.groups` | `[]` | Маски группировки для *All labels*, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ; `:` совпадает и с `::`). Пусто — группировка по префиксу до `:` / `::`. Метки, не подошедшие ни под одну маску, попадают в **Other**. |
 
 #### Источник истины (`sourceOfTruth`)
 
@@ -467,6 +525,9 @@ Git Pilot не читает код репозитория, не делает pus
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 | Git Pilot: Status Sync: Select Status | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Status Sync: Sync Now | `gitPilot.statusSync.syncNow` |
+| Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
+
+Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.labels.copyName`. Они работают только с элементами дерева, созданными самим Git Pilot.
 
 Диагностика пишется в **Output → Git Pilot**. При запуске в лог попадают версии расширения и VS Code, окружение, действующие настройки (без токенов), время активации и список запущенных модулей. Чтобы видеть каждый запрос к API, выберите уровень логирования *Trace*. Токены в лог не пишутся никогда.
 
@@ -481,9 +542,11 @@ src/
 ├── extension.ts               Точка входа: собирает PilotContext, регистрирует команды ядра, запускает модули
 ├── core/
 │   ├── types.ts               Доменные модели и контракты PilotModule / GitPlatformProvider
-│   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged
+│   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
 │   ├── logger.ts              Канал вывода «Git Pilot»
-│   ├── commands.ts            Команды ядра (setToken, openInBrowser)
+│   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem)
+│   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown)
+│   ├── ui/sectionView.ts      Раздел боковой панели = TreeView над корнями TreeNode
 │   ├── moduleRegistry.ts      Запускает модули изолированно: сбой одного не ломает остальные
 │   ├── config/settings.ts     Типизированный доступ к настройкам с проверкой значений
 │   ├── config/secrets.ts      Хранение PAT по хостам (SecretStorage)
@@ -495,7 +558,8 @@ src/
 │       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
 └── modules/
     ├── index.ts               Список модулей (новые модули добавляются здесь)
-    └── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts
+    ├── statusSync/            index.ts · syncEngine.ts · statusBarUi.ts · statusTree.ts
+    └── labels/                index.ts · labelsTree.ts · labelGroups.ts
 ```
 
 #### Как добавить модуль
@@ -513,10 +577,12 @@ export class DailyIssuesModule implements PilotModule {
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new StatusSyncModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), () => new DailyIssuesModule()];
 ```
 
 Модули не вызывают друг друга напрямую. Они общаются только через `EventBus` и общие сервисы ядра из `PilotContext`.
+
+Чтобы добавить раздел в боковую панель, объявите представление в `contributes.views.gitPilot` файла `package.json` с `"when": "config.gitPilot.<moduleId>.enabled"` и отрисуйте его через `new SectionView('<viewId>')` и узлы `TreeNode` из `core/ui/sectionView.ts`. Команды элементов получают сам `TreeNode`; доверяйте только таким узлам (`instanceof TreeNode`) и оставляйте подсказки простым текстом.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 

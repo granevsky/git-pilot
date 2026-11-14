@@ -1,4 +1,4 @@
-import type { EntityRef, EntityState, SyncState, User } from '../types';
+import type { EntityRef, EntityState, ProjectLabel, SyncState, User } from '../types';
 import { BaseProvider, type EntityKind, isProviderError, statusPrefixBase, stringLabels } from './baseProvider';
 
 // ----- GitLab REST v4 payloads (only the fields we use) -----------------------
@@ -33,6 +33,7 @@ interface GlMergeRequest {
 
 interface GlLabel {
   name: string;
+  description?: string | null;
 }
 
 /**
@@ -112,6 +113,14 @@ export class GitLabProvider extends BaseProvider {
       per_page: 100,
     });
     return issues.map((i) => this.toEntity(i));
+  }
+
+  async getLabels(): Promise<ProjectLabel[]> {
+    const labels = await this.paginate<GlLabel>(`/projects/${this.projectId}/labels`, {
+      include_ancestor_groups: true,
+      per_page: 100,
+    });
+    return this.toProjectLabels(labels);
   }
 
   protected async writeLabels(entity: EntityRef, kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {

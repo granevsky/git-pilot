@@ -1,6 +1,6 @@
 import type { SettingsManager, SourceOfTruth } from '../config/settings';
 import type { Logger } from '../logger';
-import type { EntityRef, GitPlatformProvider, Platform, SyncState, User } from '../types';
+import type { EntityRef, GitPlatformProvider, Platform, ProjectLabel, SyncState, User } from '../types';
 
 // ---------------------------------------------------------------------------
 // Scoped label engine (pure functions — identical behaviour on GitHub, GitLab CE and EE)
@@ -206,6 +206,22 @@ export abstract class BaseProvider implements GitPlatformProvider {
       seen.add(key);
       return true;
     });
+  }
+
+  /** Validates untrusted label payloads: string names only, de-duplicated case-insensitively. */
+  protected toProjectLabels(raw: unknown): ProjectLabel[] {
+    const seen = new Set<string>();
+    const result: ProjectLabel[] = [];
+    for (const entry of Array.isArray(raw) ? raw : []) {
+      const name: unknown = entry?.name;
+      if (typeof name !== 'string' || !name.trim() || seen.has(name.toLowerCase())) {
+        continue;
+      }
+      seen.add(name.toLowerCase());
+      const description: unknown = entry?.description;
+      result.push({ name, description: typeof description === 'string' ? description : '' });
+    }
+    return result;
   }
 
   /** Assembles a SyncState, sorting MRs newest-first and computing `isSynced` / `effectiveStatus`. */

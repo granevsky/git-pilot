@@ -4,6 +4,7 @@ import { extractIssueNumber } from './git/gitService';
 import { errorMessage } from './logger';
 import { detectPlatform, type ProviderTarget } from './providers/providerManager';
 import type { PilotContext, Platform } from './types';
+import { TreeNode } from './ui/sectionView';
 
 /**
  * Opens only http(s) URLs in the browser. `openExternal` also accepts `vscode:`/`command:`-style
@@ -28,6 +29,15 @@ export function registerCoreCommands(ctx: PilotContext): vscode.Disposable {
   return vscode.Disposable.from(
     vscode.commands.registerCommand('gitPilot.setToken', () => setToken(ctx)),
     vscode.commands.registerCommand('gitPilot.openInBrowser', () => openInBrowser(ctx)),
+    // Sidebar item action. Only nodes created by Git Pilot are honoured, so the command
+    // cannot be abused (e.g. from a command: link) to open arbitrary URLs.
+    vscode.commands.registerCommand('gitPilot.openItem', async (node: unknown) => {
+      if (node instanceof TreeNode && node.url) {
+        await openExternalSafe(node.url);
+      } else {
+        await openInBrowser(ctx);
+      }
+    }),
   );
 }
 

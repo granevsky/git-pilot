@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
 import { openExternalSafe } from '../../core/commands';
+import { isStatusLabel } from '../../core/providers/baseProvider';
 import type { PilotContext, PilotModule } from '../../core/types';
+import { TreeNode } from '../../core/ui/sectionView';
 import { COMMANDS, StatusBarUi } from './statusBarUi';
+import { StatusTree } from './statusTree';
 import { SyncEngine, findConflict } from './syncEngine';
 
 /**
@@ -18,21 +21,29 @@ export class StatusSyncModule implements PilotModule {
 
   activate(ctx: PilotContext): void {
     this.ctx = ctx;
-    const ui = (this.ui = new StatusBarUi(() => ctx.settings.statusSync.labelPrefix));
+    const getPrefix = () => ctx.settings.statusSync.labelPrefix;
+    const ui = (this.ui = new StatusBarUi(getPrefix));
+    const tree = new StatusTree(getPrefix);
     const engine = (this.engine = new SyncEngine(ctx));
 
     this.disposables.push(
       ui,
+      tree,
       engine,
-      engine.onDidChangeView((view) => ui.render(view)),
+      engine.onDidChangeView((view) => {
+        ui.render(view);
+        tree.render(view);
+      }),
       vscode.commands.registerCommand(COMMANDS.selectStatus, () => this.selectStatus()),
       vscode.commands.registerCommand(COMMANDS.syncNow, () => this.syncNow()),
+      vscode.commands.registerCommand(COMMANDS.applyStatus, (node: unknown) => this.applyStatusFromNode(node)),
       ctx.eventBus.onDidChangeConfig((e) => {
         if (e.affectsConfiguration('gitPilot.statusSync.enabled')) {
           this.applyEnabled();
         }
       }),
     );
+    tree.render(engine.currentView);
     this.applyEnabled();
   }
 
@@ -66,6 +77,22 @@ export class StatusSyncModule implements PilotModule {
       return;
     }
     await this.engine.requestSync('manual');
+  }
+
+  /**
+   * Sidebar action (Status Sync statuses, or a status label in the Labels section). Only nodes
+   * created by Git Pilot that carry a status label are applied; anything else opens the picker.
+   */
+  private async applyStatusFromNode(node: unknown): Promise<void> {
+    if (!this.ensureEnabled() || !this.engine || !this.ctx) {
+      return;
+    }
+    const label = node instanceof TreeNode ? node.value : undefined;
+    if (!label || !isStatusLabel(label, this.ctx.settings.statusSync.labelPrefix)) {
+      await this.selectStatus();
+      return;
+    }
+    await this.engine.applyStatus(label);
   }
 
   private async selectStatus(): Promise<void> {

@@ -79,6 +79,12 @@ export interface SyncState {
   effectiveStatus: string | null;
 }
 
+/** A label defined in the project (and, on GitLab, its ancestor groups). */
+export interface ProjectLabel {
+  name: string;
+  description: string;
+}
+
 export interface GitPlatformProvider {
   readonly platform: Platform;
   readonly host: string;
@@ -91,6 +97,8 @@ export interface GitPlatformProvider {
 
   // Extensibility hooks for future modules:
   getAssignedIssues?(labels?: string[]): Promise<EntityRef[]>;
+  /** Every label available in the project (GitLab: including ancestor group labels). */
+  getLabels?(): Promise<ProjectLabel[]>;
 }
 
 // ---------------------------------------------------------------------------

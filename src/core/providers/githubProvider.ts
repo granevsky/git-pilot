@@ -1,4 +1,4 @@
-import type { EntityRef, SyncState, User } from '../types';
+import type { EntityRef, ProjectLabel, SyncState, User } from '../types';
 import { BaseProvider, type EntityKind, ProviderError, isProviderError, stringLabels } from './baseProvider';
 
 // ----- GitHub REST v3 / GraphQL v4 payloads (only the fields we use) ----------
@@ -12,6 +12,7 @@ interface GhUser {
 
 interface GhLabel {
   name: string;
+  description?: string | null;
 }
 
 interface GhIssue {
@@ -174,6 +175,10 @@ export class GitHubProvider extends BaseProvider {
     return issues.filter((i) => !i.pull_request).map((i) => this.issueToEntity(i));
   }
 
+  async getLabels(): Promise<ProjectLabel[]> {
+    return this.toProjectLabels(await this.paginate<GhLabel>(`/repos/${this.repoRef}/labels`, { per_page: 100 }));
+  }
+
   protected async writeLabels(entity: EntityRef, _kind: EntityKind, _currentLabels: string[], nextLabels: string[]): Promise<string[]> {
     // PRs share the issue labels endpoint on GitHub. projectRef comes from the server, so only a
     // strict `owner/repo` shape may enter the path.
@@ -188,7 +193,7 @@ export class GitHubProvider extends BaseProvider {
   }
 
   private async fetchStatusLabels(): Promise<string[]> {
-    const labels = await this.paginate<GhLabel>(`/repos/${this.repoRef}/labels`, { per_page: 100 });
+    const labels = await this.getLabels();
     return this.filterStatusLabels(labels.map((l) => l.name));
   }
 
