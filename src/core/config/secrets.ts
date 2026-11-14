@@ -1,8 +1,15 @@
 import * as vscode from 'vscode';
 import type { EventBus } from '../eventBus';
+import type { Logger } from '../logger';
 import type { Platform } from '../types';
 
 const KEY_PREFIX = 'gitPilot.token:';
+
+/** Shown when SecretStorage fails — almost always a missing/locked keyring on Linux. */
+const KEYCHAIN_HELP =
+  'Git Pilot cannot access the OS keychain, so the token cannot be read or saved. ' +
+  'On Linux, VS Code needs a Secret Service keyring (e.g. GNOME Keyring or KWallet) that is installed and unlocked; ' +
+  'alternatively start VS Code with a "--password-store" option. See "Troubleshooting keychain issues" in the VS Code docs.';
 
 /**
  * Stores one Personal Access Token per host in VS Code's SecretStorage
@@ -10,10 +17,12 @@ const KEY_PREFIX = 'gitPilot.token:';
  */
 export class SecretsManager implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
+  private warnedKeychain = false;
 
   constructor(
     private readonly storage: vscode.SecretStorage,
     bus: EventBus,
+    private readonly logger: Logger,
   ) {
     this.disposables.push(
       storage.onDidChange((e) => {
@@ -28,9 +37,15 @@ export class SecretsManager implements vscode.Disposable {
     return host.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   }
 
+  /** The stored token, or `undefined` if there is none or the keychain is unavailable (reported once). */
   async getToken(host: string): Promise<string | undefined> {
-    const token = await this.storage.get(KEY_PREFIX + SecretsManager.normalizeHost(host));
-    return token?.trim() || undefined;
+    try {
+      const token = await this.storage.get(KEY_PREFIX + SecretsManager.normalizeHost(host));
+      return token?.trim() || undefined;
+    } catch (err) {
+      this.reportKeychainError('read', err);
+      return undefined;
+    }
   }
 
   async setToken(host: string, token: string): Promise<void> {
@@ -39,6 +54,19 @@ export class SecretsManager implements vscode.Disposable {
 
   async deleteToken(host: string): Promise<void> {
     await this.storage.delete(KEY_PREFIX + SecretsManager.normalizeHost(host));
+  }
+
+  private reportKeychainError(action: 'read' | 'save' | 'remove', err: unknown, interactive = false): void {
+    // Never include the token: the error comes from the keychain, the message only names the action.
+    this.logger.error(`SecretStorage ${action} failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (interactive || !this.warnedKeychain) {
+      this.warnedKeychain = true;
+      void vscode.window.showErrorMessage(KEYCHAIN_HELP, 'Show Log').then((a) => {
+        if (a === 'Show Log') {
+          this.logger.show();
+        }
+      });
+    }
   }
 
   /**
@@ -104,10 +132,20 @@ export class SecretsManager implements vscode.Disposable {
       if (confirm !== 'Remove') {
         return 'cancelled';
       }
-      await this.deleteToken(host);
+      try {
+        await this.deleteToken(host);
+      } catch (err) {
+        this.reportKeychainError('remove', err, true);
+        return 'cancelled';
+      }
       return 'deleted';
     }
-    await this.setToken(host, value);
+    try {
+      await this.setToken(host, value);
+    } catch (err) {
+      this.reportKeychainError('save', err, true);
+      return 'cancelled';
+    }
     return 'stored';
   }
 

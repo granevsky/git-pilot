@@ -14,6 +14,9 @@ export type Platform = 'gitlab' | 'github';
 
 export type EntityState = 'opened' | 'closed' | 'merged';
 
+/** Which side an EntityRef is on: the Issue or one of its MRs/PRs. */
+export type EntityKind = 'issue' | 'mr';
+
 /** A parsed git remote (`origin` by default). */
 export interface RemoteInfo {
   /** Remote name, e.g. `origin`. */
@@ -58,8 +61,8 @@ export interface EntityRef {
   /** ISO timestamp of the last update; used to determine the "latest" MR/PR. */
   updatedAt: string;
   /**
-   * Provider-specific project reference the entity belongs to (GitLab project id,
-   * GitHub `owner/repo`). Needed because related MRs may live in another project (forks).
+   * Provider-specific project reference (GitLab project id, GitHub `owner/repo`). Only entities of
+   * the current project are ever returned: MRs/PRs that live in other projects are dropped.
    */
   projectRef?: string;
 }
@@ -75,8 +78,12 @@ export interface SyncState {
   /** Open MRs/PRs linked to the issue or branch, most recently updated first. */
   mergeRequests: EntityRef[];
   availableStatusLabels: string[];
-  isSynced: boolean;
-  effectiveStatus: string | null;
+}
+
+/** A label defined in the project (and, on GitLab, its ancestor groups). */
+export interface ProjectLabel {
+  name: string;
+  description: string;
 }
 
 export interface GitPlatformProvider {
@@ -88,9 +95,16 @@ export interface GitPlatformProvider {
   getCurrentUser(): Promise<User>;
   getSyncState(issueNumber: number, branchName: string): Promise<SyncState | null>;
   setUnifiedStatus(state: SyncState, newStatusLabel: string): Promise<SyncState>;
+  /**
+   * Adds/removes labels on one Issue or MR/PR as a minimal diff (other labels and concurrent edits
+   * are kept). Labels must already exist in the project. Returns the entity with server-reported labels.
+   */
+  editLabels(entity: EntityRef, kind: EntityKind, add: readonly string[], remove: readonly string[]): Promise<EntityRef>;
 
   // Extensibility hooks for future modules:
   getAssignedIssues?(labels?: string[]): Promise<EntityRef[]>;
+  /** Every label available in the project (GitLab: including ancestor group labels). */
+  getLabels?(): Promise<ProjectLabel[]>;
 }
 
 // ---------------------------------------------------------------------------

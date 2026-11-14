@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { RepoContext } from './types';
+import type { RepoContext, SyncState } from './types';
 
 export interface BranchChangeEvent {
   repo: RepoContext | null;
@@ -18,6 +18,11 @@ export interface PilotEvents {
   branchChanged: BranchChangeEvent;
   configChanged: vscode.ConfigurationChangeEvent;
   authChanged: AuthChangeEvent;
+  /**
+   * Issue/MR state published by Status Sync after every sync or label change; `null` when the
+   * current branch has no (loadable) issue any more.
+   */
+  syncStateChanged: SyncState | null;
 }
 
 type EmitterMap = { [K in keyof PilotEvents]: vscode.EventEmitter<PilotEvents[K]> };
@@ -32,12 +37,14 @@ export class EventBus implements vscode.Disposable {
     branchChanged: new vscode.EventEmitter(),
     configChanged: new vscode.EventEmitter(),
     authChanged: new vscode.EventEmitter(),
+    syncStateChanged: new vscode.EventEmitter(),
   };
 
   readonly onDidChangeRepo = this.emitters.repoChanged.event;
   readonly onDidChangeBranch = this.emitters.branchChanged.event;
   readonly onDidChangeConfig = this.emitters.configChanged.event;
   readonly onDidChangeAuth = this.emitters.authChanged.event;
+  readonly onDidChangeSyncState = this.emitters.syncStateChanged.event;
 
   on<K extends keyof PilotEvents>(event: K, listener: (payload: PilotEvents[K]) => unknown): vscode.Disposable {
     return (this.emitters[event] as vscode.EventEmitter<PilotEvents[K]>).event(listener);

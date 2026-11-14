@@ -29,6 +29,7 @@ function modeName(mode: vscode.ExtensionMode): string {
 function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: SettingsManager): void {
   const version = String(context.extension.packageJSON.version ?? 'unknown');
   const sync = settings.statusSync;
+  const labels = settings.labels;
   logger.info(`===== Git Pilot v${version} starting =====`);
   logger.info(
     `Environment: VS Code ${vscode.version} (${vscode.env.appName}, ${vscode.env.uiKind === vscode.UIKind.Web ? 'web' : 'desktop'}), ` +
@@ -43,9 +44,10 @@ function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: 
       `allowInsecureHttp=${settings.allowInsecureHttp}, branchIssueRegex=${settings.branchIssueRegexSource}`,
   );
   logger.info(
-    `Status Sync: enabled=${sync.enabled}, labelPrefix="${sync.labelPrefix}", sourceOfTruth=${sync.sourceOfTruth}, ` +
-      `autoSyncInterval=${sync.autoSyncInterval ? `${sync.autoSyncInterval}s` : 'off'}`,
+    `Issue & MR: showSection=${sync.showSection}, showStatusBar=${sync.showStatusBar}, labelPrefix="${sync.labelPrefix}", ` +
+      `refreshInterval=${sync.refreshInterval ? `${sync.refreshInterval}s` : 'off'} (labels are written only on user action)`,
   );
+  logger.info(`Labels: enabled=${labels.enabled}, groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`);
 }
 
 /**
@@ -61,7 +63,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   try {
     const eventBus = new EventBus();
     const settings = new SettingsManager(eventBus, logger);
-    const secrets = new SecretsManager(context.secrets, eventBus);
+    const secrets = new SecretsManager(context.secrets, eventBus, logger);
     const gitService = new GitService(eventBus, logger);
     const providerManager = new ProviderManager(settings, secrets, gitService, eventBus, logger);
 

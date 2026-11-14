@@ -1,10 +1,11 @@
 {
   "name": "git-pilot",
   "displayName": "Git Pilot",
-  "description": "An extensible developer cockpit for GitLab (CE/EE) and GitHub. Phase 1: Issue <-> MR/PR status label sync.",
+  "description": "An extensible developer cockpit for GitLab (CE/EE) and GitHub: sidebar with the current Issue / MR, their labels and Issue <-> MR/PR status sync.",
   "version": "1.0.0",
   "publisher": "Granevsky",
   "license": "MIT",
+  "icon": "media/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/granevsky/git-pilot"
@@ -58,17 +59,280 @@
       },
       {
         "command": "gitPilot.statusSync.selectStatus",
-        "title": "Status Sync: Select Status",
+        "title": "Change Status…",
         "category": "Git Pilot",
         "icon": "$(tag)"
       },
       {
-        "command": "gitPilot.statusSync.syncNow",
-        "title": "Status Sync: Sync Now",
+        "command": "gitPilot.statusSync.syncFromMr",
+        "title": "Issue & MR: Sync Labels from MR / PR…",
         "category": "Git Pilot",
         "icon": "$(sync)"
+      },
+      {
+        "command": "gitPilot.statusSync.refresh",
+        "title": "Issue & MR: Refresh",
+        "category": "Git Pilot",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitPilot.openItem",
+        "title": "Open in Browser",
+        "category": "Git Pilot",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "gitPilot.statusSync.applyStatus",
+        "title": "Apply Status",
+        "category": "Git Pilot",
+        "icon": "$(check)"
+      },
+      {
+        "command": "gitPilot.labels.refresh",
+        "title": "Labels: Refresh",
+        "category": "Git Pilot",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitPilot.labels.copyName",
+        "title": "Copy Label Name",
+        "category": "Git Pilot",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "gitPilot.statusSync.addLabel",
+        "title": "Add Labels…",
+        "category": "Git Pilot",
+        "icon": "$(add)"
+      },
+      {
+        "command": "gitPilot.statusSync.removeLabel",
+        "title": "Remove Label from Issue / MR",
+        "category": "Git Pilot",
+        "icon": "$(close)"
+      },
+      {
+        "command": "gitPilot.statusSync.replaceLabel",
+        "title": "Replace Label…",
+        "category": "Git Pilot",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "gitPilot.statusSync.copyLabelToOthers",
+        "title": "Add Label Where Missing",
+        "category": "Git Pilot",
+        "icon": "$(arrow-right)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gitPilot",
+          "title": "Git Pilot",
+          "icon": "media/git-pilot.svg"
+        }
+      ]
+    },
+    "views": {
+      "gitPilot": [
+        {
+          "id": "gitPilot.statusSync",
+          "name": "Issue & MR",
+          "icon": "$(issues)",
+          "contextualTitle": "Git Pilot",
+          "when": "config.gitPilot.statusSync.showSection || !config.gitPilot.labels.enabled"
+        },
+        {
+          "id": "gitPilot.labels",
+          "name": "Labels",
+          "icon": "$(tag)",
+          "contextualTitle": "Git Pilot",
+          "when": "config.gitPilot.labels.enabled"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "gitPilot.openItem",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.statusSync.applyStatus",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.statusSync.removeLabel",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.statusSync.replaceLabel",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.statusSync.copyLabelToOthers",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.labels.copyName",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gitPilot.statusSync.selectStatus",
+          "when": "view == gitPilot.statusSync",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitPilot.statusSync.addLabel",
+          "when": "view == gitPilot.statusSync",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gitPilot.statusSync.syncFromMr",
+          "when": "view == gitPilot.statusSync",
+          "group": "navigation@3"
+        },
+        {
+          "command": "gitPilot.statusSync.refresh",
+          "when": "view == gitPilot.statusSync",
+          "group": "navigation@4"
+        },
+        {
+          "command": "gitPilot.labels.refresh",
+          "when": "view == gitPilot.labels",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitPilot.openInBrowser",
+          "when": "view =~ /^gitPilot[.]/",
+          "group": "1_links@1"
+        },
+        {
+          "command": "gitPilot.setToken",
+          "when": "view =~ /^gitPilot[.]/",
+          "group": "2_auth@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gitPilot.statusSync.syncFromMr",
+          "when": "view == gitPilot.statusSync && viewItem =~ /outOfSync/",
+          "group": "inline@0"
+        },
+        {
+          "command": "gitPilot.statusSync.syncFromMr",
+          "when": "view == gitPilot.statusSync && viewItem =~ /outOfSync/",
+          "group": "1_status@0"
+        },
+        {
+          "command": "gitPilot.statusSync.selectStatus",
+          "when": "view == gitPilot.statusSync && viewItem =~ /summary|entityStatus/",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.selectStatus",
+          "when": "view == gitPilot.statusSync && viewItem =~ /summary|entityStatus/",
+          "group": "1_status@1"
+        },
+        {
+          "command": "gitPilot.statusSync.applyStatus",
+          "when": "view == gitPilot.statusSync && viewItem == statusOption",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.applyStatus",
+          "when": "view == gitPilot.statusSync && viewItem == statusOption",
+          "group": "1_status@2"
+        },
+        {
+          "command": "gitPilot.statusSync.addLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /issueOrMr/",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.addLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /issueOrMr/",
+          "group": "2_labels@1"
+        },
+        {
+          "command": "gitPilot.openItem",
+          "when": "view =~ /^gitPilot[.]/ && viewItem =~ /openable/",
+          "group": "inline@9"
+        },
+        {
+          "command": "gitPilot.openItem",
+          "when": "view =~ /^gitPilot[.]/ && viewItem =~ /openable/",
+          "group": "9_open@1"
+        },
+        {
+          "command": "gitPilot.statusSync.copyLabelToOthers",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/ && viewItem =~ /missingElsewhere/",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.replaceLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/ && viewItem =~ /grouped/",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitPilot.statusSync.removeLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/",
+          "group": "inline@3"
+        },
+        {
+          "command": "gitPilot.statusSync.copyLabelToOthers",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/ && viewItem =~ /missingElsewhere/",
+          "group": "2_labels@1"
+        },
+        {
+          "command": "gitPilot.statusSync.replaceLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/ && viewItem =~ /grouped/",
+          "group": "2_labels@2"
+        },
+        {
+          "command": "gitPilot.statusSync.removeLabel",
+          "when": "view == gitPilot.statusSync && viewItem =~ /entityLabel/",
+          "group": "2_labels@3"
+        },
+        {
+          "command": "gitPilot.statusSync.addLabel",
+          "when": "view == gitPilot.labels && viewItem =~ /canAdd/",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.removeLabel",
+          "when": "view == gitPilot.labels && viewItem =~ /canRemove/",
+          "group": "inline@2"
+        },
+        {
+          "command": "gitPilot.statusSync.addLabel",
+          "when": "view == gitPilot.labels && viewItem =~ /canAdd/",
+          "group": "1_labels@1"
+        },
+        {
+          "command": "gitPilot.statusSync.removeLabel",
+          "when": "view == gitPilot.labels && viewItem =~ /canRemove/",
+          "group": "1_labels@2"
+        },
+        {
+          "command": "gitPilot.statusSync.applyStatus",
+          "when": "view == gitPilot.labels && viewItem == statusLabel",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.statusSync.applyStatus",
+          "when": "view == gitPilot.labels && viewItem == statusLabel",
+          "group": "1_labels@1"
+        },
+        {
+          "command": "gitPilot.labels.copyName",
+          "when": "view =~ /^gitPilot[.]/ && viewItem =~ /catalogLabel|statusLabel|entityLabel|entityStatus|statusOption/",
+          "group": "9_copy@1"
+        }
+      ]
+    },
     "configuration": [
       {
         "title": "Git Pilot",
@@ -108,38 +372,47 @@
         }
       },
       {
-        "title": "Status Sync",
+        "title": "Issue & MR",
         "properties": {
-          "gitPilot.statusSync.enabled": {
+          "gitPilot.statusSync.showSection": {
             "type": "boolean",
             "default": true,
-            "description": "Enable the Status Sync module (Issue <-> MR/PR status label synchronization)."
+            "markdownDescription": "Show the **Issue & MR** section in the Git Pilot sidebar. Ignored while it is the only section (i.e. `gitPilot.labels.enabled` is off): then it is always shown."
+          },
+          "gitPilot.statusSync.showStatusBar": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Issue / MR status item in the status bar."
           },
           "gitPilot.statusSync.labelPrefix": {
             "type": "string",
             "default": "status:",
             "markdownDescription": "Prefix identifying status labels. Use `status:` for regular labels or `status::` for GitLab Premium scoped labels. `:` and `::` variants are treated as equivalent when stripping old statuses."
           },
-          "gitPilot.statusSync.sourceOfTruth": {
-            "type": "string",
-            "enum": [
-              "mr",
-              "issue",
-              "prompt"
-            ],
-            "enumDescriptions": [
-              "The open MR/PR status silently overwrites the Issue status on divergence.",
-              "The Issue status silently overwrites open MR/PR statuses on divergence.",
-              "Highlight the conflict in the status bar and ask which status to apply."
-            ],
-            "default": "mr",
-            "description": "Which side wins when the Issue and its MR/PR have different status labels."
-          },
-          "gitPilot.statusSync.autoSyncInterval": {
+          "gitPilot.statusSync.refreshInterval": {
             "type": "number",
             "default": 120,
             "minimum": 0,
-            "description": "Polling interval in seconds for automatic synchronization (0 disables polling)."
+            "markdownDescription": "Interval in seconds for refreshing the Issue / MR data in the background while the window is focused (`0` disables it; minimum 10). Read-only: labels are changed only by your own actions, e.g. **Sync Labels from MR / PR…**, which asks for confirmation."
+          }
+        }
+      },
+      {
+        "title": "Labels",
+        "properties": {
+          "gitPilot.labels.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Show the Labels section (project label catalog) in the Git Pilot sidebar."
+          },
+          "gitPilot.labels.groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": [],
+            "maxItems": 50,
+            "markdownDescription": "Masks that group labels, in display order, e.g. `[\"status:*\", \"app:*\", \"type:*\"]`. `*` matches any characters, `?` one character; `:` also matches `::` (scoped labels). Labels of one group are mutually exclusive on an Issue/MR (adding one replaces the other); labels that match no mask go to **Other** and can be combined. Leave empty to group automatically by the prefix before `:` / `::`."
           }
         }
       }

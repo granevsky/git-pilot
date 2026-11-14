@@ -1,5 +1,5 @@
-import type { EntityRef, EntityState, SyncState, User } from '../types';
-import { BaseProvider, type EntityKind, isProviderError, statusPrefixBase, stringLabels } from './baseProvider';
+import type { EntityRef, EntityState, ProjectLabel, SyncState, User } from '../types';
+import { BaseProvider, type EntityKind, isProviderError, labelDiff, statusPrefixBase, stringLabels } from './baseProvider';
 
 // ----- GitLab REST v4 payloads (only the fields we use) -----------------------
 
@@ -33,6 +33,7 @@ interface GlMergeRequest {
 
 interface GlLabel {
   name: string;
+  description?: string | null;
 }
 
 /**
@@ -90,10 +91,15 @@ export class GitLabProvider extends BaseProvider {
       this.fetchStatusLabels(),
     ]);
 
-    const unique = new Map<string, GlMergeRequest>();
+    // Only MRs of this very project. related_merge_requests also returns MRs of *other* projects that
+    // merely mention the issue — anyone can create those, so they must neither drive the status nor
+    // receive writes made with the user's token.
+    const unique = new Map<number, GlMergeRequest>();
     for (const mr of [...byBranch, ...related]) {
-      if (mr.state === 'opened') {
-        unique.set(`${mr.project_id}!${mr.iid}`, mr);
+      if (mr?.state === 'opened' && mr.project_id === issue.project_id && Number.isSafeInteger(mr.iid)) {
+        unique.set(mr.iid, mr);
+      } else if (mr && mr.project_id !== issue.project_id) {
+        this.logger.debug(`[gitlab] Ignoring MR !${String(mr.iid)} of another project (${String(mr.project_id)}).`);
       }
     }
 
@@ -114,17 +120,21 @@ export class GitLabProvider extends BaseProvider {
     return issues.map((i) => this.toEntity(i));
   }
 
+  async getLabels(): Promise<ProjectLabel[]> {
+    const labels = await this.paginate<GlLabel>(`/projects/${this.projectId}/labels`, {
+      include_ancestor_groups: true,
+      per_page: 100,
+    });
+    return this.toProjectLabels(labels);
+  }
+
   protected async writeLabels(entity: EntityRef, kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {
     // add_labels/remove_labels is a minimal diff, so concurrent edits to other labels are not clobbered.
-    const current = new Set(currentLabels.map((l) => l.toLowerCase()));
-    const next = new Set(nextLabels.map((l) => l.toLowerCase()));
-    const add = nextLabels.filter((l) => !current.has(l.toLowerCase()));
-    const remove = currentLabels.filter((l) => !next.has(l.toLowerCase()));
+    const { add, remove } = labelDiff(currentLabels, nextLabels);
 
-    // projectRef comes from the server; only numeric GitLab project ids may enter the path.
-    const project = entity.projectRef && /^\d+$/.test(entity.projectRef) ? entity.projectRef : this.projectId;
+    // Writes only ever go to the current project (foreign MRs are filtered out in getSyncState).
     const resource = kind === 'issue' ? 'issues' : 'merge_requests';
-    const res = await this.request<GlIssue | GlMergeRequest>('PUT', `/projects/${project}/${resource}/${entity.id}`, {
+    const res = await this.request<GlIssue | GlMergeRequest>('PUT', `/projects/${this.projectId}/${resource}/${entity.id}`, {
       body: {
         ...(add.length ? { add_labels: add.join(',') } : {}),
         ...(remove.length ? { remove_labels: remove.join(',') } : {}),

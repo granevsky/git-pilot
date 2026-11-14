@@ -30,6 +30,10 @@ const problemMatcherPlugin = {
 };
 
 async function main() {
+  if (production) {
+    // Start from an empty dist/: a stale dev sourcemap must never end up in the published .vsix.
+    require('fs').rmSync('dist', { recursive: true, force: true });
+  }
   const ctx = await esbuild.context({
     entryPoints: ['src/extension.ts'],
     bundle: true,

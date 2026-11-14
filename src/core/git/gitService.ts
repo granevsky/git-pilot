@@ -8,6 +8,8 @@ import type { GitAPI, GitExtension, Remote, Repository } from './gitApi';
 // Pure helpers (no VS Code dependencies; safe to unit test)
 // ---------------------------------------------------------------------------
 
+const NETWORK_SCHEMES = new Set(['https:', 'http:', 'ssh:', 'git:', 'git+ssh:', 'ssh+git:']);
+
 /**
  * Parses SSH (`git@host:group/sub/repo.git`, `ssh://git@host:2222/group/repo.git`)
  * and HTTP(S) (`https://host/group/sub/repo.git`) remote URLs, preserving nested
@@ -30,8 +32,16 @@ export function parseRemoteUrl(rawUrl: string, remoteName = 'origin'): RemoteInf
     } catch {
       return null;
     }
+    // Only network transports name a host; `file://` and other local remotes have none.
+    if (!NETWORK_SCHEMES.has(parsed.protocol.toLowerCase()) || !parsed.hostname) {
+      return null;
+    }
     hostname = parsed.hostname.toLowerCase();
-    path = decodeURIComponent(parsed.pathname);
+    try {
+      path = decodeURIComponent(parsed.pathname);
+    } catch {
+      return null; // malformed %-escape (the remote URL comes from an untrusted repository)
+    }
     const isHttp = parsed.protocol === 'http:' || parsed.protocol === 'https:';
     // For HTTP(S) remotes the port is part of the web URL; SSH ports are not. The API is always
     // assumed to be HTTPS: a plain-http remote (possibly planted in a cloned repo) must not
@@ -40,7 +50,9 @@ export function parseRemoteUrl(rawUrl: string, remoteName = 'origin'): RemoteInf
   } else {
     // scp-like syntax: [user@]host:path
     const match = /^(?:[^@/]+@)?([^:/]+):(.+)$/.exec(url);
-    if (!match) {
+    // A single letter before the colon is a Windows drive (`C:/repos/x.git`), i.e. a local path —
+    // git itself never treats it as an scp-like host either.
+    if (!match || /^[a-z]$/i.test(match[1])) {
       return null;
     }
     hostname = match[1].toLowerCase();
@@ -53,7 +65,9 @@ export function parseRemoteUrl(rawUrl: string, remoteName = 'origin'): RemoteInf
     .replace(/\/+$/, '')
     .replace(/\.git$/i, '');
   const segments = projectPath.split('/').filter(Boolean);
-  if (segments.length < 2) {
+  // Dot segments would be resolved by URL parsing once the path enters an API URL (e.g. owner ".."
+  // escaping `/repos/`); control characters have no place in a project path either.
+  if (segments.length < 2 || segments.some((s) => s === '.' || s === '..' || /[\u0000-\u001f\u007f\\]/.test(s))) {
     return null;
   }
 
