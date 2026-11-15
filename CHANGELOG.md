@@ -9,6 +9,10 @@
 
 ## English
 
+### [1.0.3] — 2026-11-15
+
+- Changed the extension identifier (`name`) to `git-pilot-ext` for publishing on the VS Code Marketplace.
+
 ### [1.0.2] — 2026-11-15
 
 - Updated the extension icon.
@@ -33,6 +37,10 @@
 <a id="ru"></a>
 
 ## Русский
+
+### [1.0.3] — 2026-11-15
+
+- Изменено техническое имя пакета (`name`) на `git-pilot-ext` для публикации в магазине расширений VS Code Marketplace.
 
 ### [1.0.2] — 2026-11-15
 
