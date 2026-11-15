@@ -111,7 +111,7 @@ Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `git
 
 ### Packaging
 
-`.vscodeignore` is an allow-list (`dist/extension.js`, `media/`, `README.md`, `LICENSE.md`, `package.json`). Package with `vsce package --no-dependencies` (pnpm layout, no runtime dependencies) and check the contents with `vsce ls --no-dependencies` before publishing.
+`.vscodeignore` is an allow-list (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Package with `vsce package --no-dependencies` (pnpm layout, no runtime dependencies) and check the contents with `vsce ls --no-dependencies` before publishing.
 
 `README.md` is shown on the Marketplace, so keep it user-facing; technical notes belong in this file.
 
@@ -221,7 +221,7 @@ export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), 
 
 ### Упаковка
 
-`.vscodeignore` — белый список (`dist/extension.js`, `media/`, `README.md`, `LICENSE.md`, `package.json`). Собирайте пакет командой `vsce package --no-dependencies` (раскладка pnpm, зависимостей во время работы нет) и перед публикацией проверьте состав через `vsce ls --no-dependencies`.
+`.vscodeignore` — белый список (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Собирайте пакет командой `vsce package --no-dependencies` (раскладка pnpm, зависимостей во время работы нет) и перед публикацией проверьте состав через `vsce ls --no-dependencies`.
 
 `README.md` показывается в Marketplace, поэтому в нём только пользовательская документация; техническая информация — в этом файле.
 

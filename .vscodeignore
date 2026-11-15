@@ -4,5 +4,6 @@
 !dist/extension.js
 !media/**
 !README.md
+!CHANGELOG.md
 !LICENSE.md
 !package.json
