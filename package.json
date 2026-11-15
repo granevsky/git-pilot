@@ -1,8 +1,8 @@
 {
-  "name": "git-pilot",
+  "name": "git-pilot-ext",
   "displayName": "Git Pilot",
   "description": "Manage the current branch's GitLab or GitHub Issue, MR/PR labels, and status sync right from VS Code.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "Granevsky",
   "license": "MIT",
   "icon": "media/icon.png",
