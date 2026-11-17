@@ -50,9 +50,9 @@ src/
 ├── extension.ts               Entry point: builds PilotContext, registers core commands, activates modules
 ├── core/
 │   ├── types.ts               Domain models + PilotModule / GitPlatformProvider contracts
-│   ├── eventBus.ts            Typed events: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
+│   ├── eventBus.ts            Typed events: repoChanged, branchChanged, configChanged, authChanged, repoPinChanged, syncStateChanged
 │   ├── logger.ts              "Git Pilot" log output channel
-│   ├── commands.ts            Core commands (setToken, openInBrowser, openItem)
+│   ├── commands.ts            Core commands (setToken, openInBrowser, openItem, selectRepository)
 │   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping, URL credential redaction)
 │   ├── labels.ts              Label groups (prefix / masks) and group exclusivity
 │   ├── ui/sectionView.ts      Sidebar section = TreeView over TreeNode roots
@@ -67,8 +67,13 @@ src/
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
     ├── index.ts               Module list (add new modules here)
-    └── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
+    ├── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
+    └── comments/             index.ts · commentsTree.ts · commentDocs.ts
 ```
+
+The active repository is the one of the focused `file:` editor (else the first); `GitService.pinRepository()` pins one instead (`workspaceState`, compared only with the roots of open repositories; a pin for a repository that is not open is kept but ignored) and emits `repoPinChanged`. Sections read `gitService.getRepoSummary()` for headers / hints (`withRepoContext`, `repoHint` in `core/format.ts`).
+
+The **comments** module gets its Issue / MRs from `eventBus.currentSyncState` / `syncStateChanged` (published by `labelSync`), never by importing it. Providers implement the optional `getComments?` (newest first, system notes excluded: GitLab `sort=desc` + client-side `system` filter and `X-Next-Page` cursor; GitHub GraphQL `comments(last, before)`) and `addComment?`. Comment bodies are untrusted: they are shown only as plain text (`gitpilot-comment:` virtual documents) and permalinks go through `safeWebUrl`. By default a comment is typed in a one-line `InputBox` (`gitPilot.comments.compose`); longer ones go through untitled Markdown drafts tracked in `CommentsModule.composers`. Both paths end in `CommentsModule.post()`, which re-validates host / project / entity against the live state.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -102,7 +107,7 @@ To add a sidebar section, declare a view in `contributes.views.gitPilot` of `pac
 
 ### Internal commands
 
-Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`. They act only on tree items created by Git Pilot.
+Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`, `gitPilot.comments.open`, `gitPilot.comments.loadMore`. They act only on tree items created by Git Pilot. `gitPilot.comments.send` is visible in the Command Palette only while a comment draft is the active editor (context key `gitPilot.comments.composer`).
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -159,9 +164,9 @@ src/
 ├── extension.ts               Точка входа: собирает PilotContext, регистрирует команды ядра, запускает модули
 ├── core/
 │   ├── types.ts               Доменные модели и контракты PilotModule / GitPlatformProvider
-│   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
+│   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged, repoPinChanged, syncStateChanged
 │   ├── logger.ts              Канал вывода «Git Pilot»
-│   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem)
+│   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem, selectRepository)
 │   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown, маскирование секретов в URL)
 │   ├── labels.ts              Группы меток (префикс / маски) и их взаимоисключение
 │   ├── ui/sectionView.ts      Раздел боковой панели = TreeView над корнями TreeNode
@@ -176,8 +181,13 @@ src/
 │       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
 └── modules/
     ├── index.ts               Список модулей (новые модули добавляются здесь)
-    └── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
+    ├── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
+    └── comments/             index.ts · commentsTree.ts · commentDocs.ts
 ```
+
+Активный репозиторий — репозиторий сфокусированного редактора со схемой `file:` (иначе первый); `GitService.pinRepository()` закрепляет репозиторий (`workspaceState`; значение сравнивается только с корнями открытых репозиториев, закрепление неоткрытого репозитория сохраняется, но игнорируется) и шлёт `repoPinChanged`. Разделы берут `gitService.getRepoSummary()` для заголовков и подсказок (`withRepoContext`, `repoHint` в `core/format.ts`).
+
+Модуль **comments** получает задачу и MR/PR из `eventBus.currentSyncState` / `syncStateChanged` (их публикует `labelSync`), не импортируя его. Провайдеры реализуют необязательные `getComments?` (сначала новые, без системных записей: в GitLab `sort=desc` + фильтр `system` на клиенте и курсор `X-Next-Page`; в GitHub GraphQL `comments(last, before)`) и `addComment?`. Тела комментариев — недоверенный текст: показываются только как простой текст (виртуальные документы `gitpilot-comment:`), а ссылки на комментарии проходят через `safeWebUrl`. По умолчанию комментарий вводится в однострочном `InputBox` (`gitPilot.comments.compose`); длинные идут через untitled Markdown-черновики, которые учитываются в `CommentsModule.composers`. Оба пути заканчиваются в `CommentsModule.post()`, который перепроверяет хост, проект и сущность по актуальному состоянию.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -211,7 +221,7 @@ export const MODULES = [() => new LabelSyncModule(), () => new DailyIssuesModule
 
 ### Служебные команды
 
-Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`. Они работают только с элементами дерева, созданными самим Git Pilot.
+Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`, `gitPilot.comments.open`, `gitPilot.comments.loadMore`. Они работают только с элементами дерева, созданными самим Git Pilot. `gitPilot.comments.send` виден в палитре команд только пока активный редактор — черновик комментария (context key `gitPilot.comments.composer`).
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 

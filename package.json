@@ -58,6 +58,12 @@
         "icon": "$(link-external)"
       },
       {
+        "command": "gitPilot.selectRepository",
+        "title": "Select Repository…",
+        "category": "Git Pilot",
+        "icon": "$(repo)"
+      },
+      {
         "command": "gitPilot.labelSync.selectStatus",
         "title": "Change Status…",
         "category": "Git Pilot",
@@ -116,6 +122,44 @@
         "title": "Add Label Where Missing",
         "category": "Git Pilot",
         "icon": "$(arrow-right)"
+      },
+      {
+        "command": "gitPilot.comments.refresh",
+        "title": "Comments: Refresh",
+        "category": "Git Pilot",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "gitPilot.comments.add",
+        "title": "Comments: Add Comment…",
+        "category": "Git Pilot",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "gitPilot.comments.send",
+        "title": "Comments: Send Comment",
+        "category": "Git Pilot",
+        "icon": "$(send)"
+      },
+      {
+        "command": "gitPilot.comments.open",
+        "title": "Read Comment",
+        "category": "Git Pilot",
+        "icon": "$(book)"
+      },
+      {
+        "command": "gitPilot.comments.loadMore",
+        "title": "Show More Comments",
+        "category": "Git Pilot",
+        "icon": "$(chevron-down)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gitPilot.comments.send",
+        "key": "ctrl+enter",
+        "mac": "cmd+enter",
+        "when": "gitPilot.comments.composer && editorTextFocus"
       }
     ],
     "viewsContainers": {
@@ -133,6 +177,12 @@
           "id": "gitPilot.labelSync",
           "name": "Labels",
           "icon": "$(tag)",
+          "contextualTitle": "Git Pilot"
+        },
+        {
+          "id": "gitPilot.comments",
+          "name": "Comments",
+          "icon": "$(comment-discussion)",
           "contextualTitle": "Git Pilot"
         }
       ]
@@ -162,9 +212,38 @@
         {
           "command": "gitPilot.labelSync.copyLabelName",
           "when": "false"
+        },
+        {
+          "command": "gitPilot.comments.send",
+          "when": "gitPilot.comments.composer"
+        },
+        {
+          "command": "gitPilot.comments.open",
+          "when": "false"
+        },
+        {
+          "command": "gitPilot.comments.loadMore",
+          "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "gitPilot.comments.send",
+          "when": "gitPilot.comments.composer",
+          "group": "navigation@1"
         }
       ],
       "view/title": [
+        {
+          "command": "gitPilot.comments.add",
+          "when": "view == gitPilot.comments",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gitPilot.comments.refresh",
+          "when": "view == gitPilot.comments",
+          "group": "navigation@2"
+        },
         {
           "command": "gitPilot.labelSync.selectStatus",
           "when": "view == gitPilot.labelSync",
@@ -191,12 +270,32 @@
           "group": "1_links@1"
         },
         {
+          "command": "gitPilot.selectRepository",
+          "when": "view =~ /^gitPilot[.]/",
+          "group": "1_links@2"
+        },
+        {
           "command": "gitPilot.setToken",
           "when": "view =~ /^gitPilot[.]/",
           "group": "2_auth@1"
         }
       ],
       "view/item/context": [
+        {
+          "command": "gitPilot.comments.add",
+          "when": "view == gitPilot.comments && viewItem =~ /commentTarget/",
+          "group": "inline@1"
+        },
+        {
+          "command": "gitPilot.comments.add",
+          "when": "view == gitPilot.comments && viewItem =~ /commentTarget/",
+          "group": "1_comment@1"
+        },
+        {
+          "command": "gitPilot.comments.open",
+          "when": "view == gitPilot.comments && viewItem =~ /commentItem/",
+          "group": "1_comment@1"
+        },
         {
           "command": "gitPilot.labelSync.syncFromMr",
           "when": "view == gitPilot.labelSync && viewItem =~ /outOfSync/",
@@ -369,6 +468,31 @@
             "default": [],
             "maxItems": 50,
             "markdownDescription": "Masks that group labels, in display order, e.g. `[\"status:*\", \"app:*\", \"type:*\"]`. `*` matches any characters, `?` one character; `:` also matches `::` (scoped labels). Labels of one group are mutually exclusive on an Issue/MR (adding one replaces the other); labels that match no mask go to **Other** and can be combined. Leave empty to group automatically by the prefix before `:` / `::`."
+          }
+        }
+      },
+      {
+        "title": "Comments",
+        "properties": {
+          "gitPilot.comments.compose": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "editor"
+            ],
+            "enumDescriptions": [
+              "A one-line input box: Enter posts the comment; a button in it moves the text to an editor for longer, multi-line Markdown.",
+              "Always open a Markdown draft in an editor; post it with Ctrl+Enter (⌘+Enter on macOS) or the Send button."
+            ],
+            "default": "quick",
+            "description": "How Add comment… collects the text of a new comment."
+          },
+          "gitPilot.comments.pageSize": {
+            "type": "number",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50,
+            "markdownDescription": "How many comments the **Comments** section loads at a time (newest first); **Show more…** loads the next page. On GitLab the count is approximate, because automatic system notes are skipped after loading."
           }
         }
       }

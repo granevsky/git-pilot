@@ -42,6 +42,31 @@ export interface RepoContext {
   remote: RemoteInfo | null;
 }
 
+/** An open git repository, as offered by "Select Repository…". */
+export interface RepositoryInfo {
+  /** Root URI as a string — the identity used for pinning. */
+  key: string;
+  /** Folder name of the repository root. */
+  name: string;
+  branch: string | null;
+  /** `group/repo` from the remote, when it could be parsed. */
+  projectPath: string | null;
+  /** Local path of the root (display only). */
+  path: string;
+}
+
+/** What the sidebar shows about the active repository so the user can tell why a section looks the way it does. */
+export interface RepoSummary {
+  /** Root URI string (same as `RepositoryInfo.key`). */
+  key: string;
+  name: string;
+  branch: string | null;
+  /** The repository was chosen with "Select Repository…" instead of following the active editor. */
+  pinned: boolean;
+  /** Number of open repositories. */
+  repoCount: number;
+}
+
 export interface User {
   id: number;
   username: string;
@@ -86,6 +111,31 @@ export interface ProjectLabel {
   description: string;
 }
 
+/** A user-written comment on an Issue or MR/PR (system notes — label changes, weight, … — are never included). */
+export interface EntityComment {
+  /** Numeric id as a digit string (validated by the provider before it reaches a URL or a tree). */
+  id: string;
+  /** Login of the author (`ghost` when the account is gone). */
+  author: string;
+  /** Raw Markdown body. Untrusted: never render it as HTML or trusted Markdown. */
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Permalink to the comment on the web page (already passed through `safeWebUrl`), if known. */
+  webUrl: string | null;
+  /** The body references images / videos / uploads (they are viewed in the browser, not in VS Code). */
+  hasMedia: boolean;
+  /** GitLab internal note (visible to project members only). */
+  isPrivate: boolean;
+}
+
+/** One page of comments, newest first. */
+export interface CommentPage {
+  comments: EntityComment[];
+  /** Opaque cursor for the next (older) page, or `null` when there are no more comments. */
+  nextCursor: string | null;
+}
+
 export interface GitPlatformProvider {
   readonly platform: Platform;
   readonly host: string;
@@ -105,6 +155,14 @@ export interface GitPlatformProvider {
   getAssignedIssues?(labels?: string[]): Promise<EntityRef[]>;
   /** Every label available in the project (GitLab: including ancestor group labels). */
   getLabels?(): Promise<ProjectLabel[]>;
+  /**
+   * User comments of one Issue or MR/PR, newest first, without system notes. Returns at least
+   * `limit` comments when that many exist (providers may return a few more). Pass the previous
+   * page's `nextCursor` to continue with older comments.
+   */
+  getComments?(entity: EntityRef, kind: EntityKind, limit: number, cursor?: string | null): Promise<CommentPage>;
+  /** Posts a new comment on one Issue or MR/PR of the current project. */
+  addComment?(entity: EntityRef, kind: EntityKind, body: string): Promise<EntityComment>;
 }
 
 // ---------------------------------------------------------------------------

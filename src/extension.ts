@@ -48,6 +48,7 @@ function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: 
       `refreshInterval=${sync.refreshInterval ? `${sync.refreshInterval}s` : 'off'} (labels are written only on user action), ` +
       `groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`,
   );
+  logger.info(`Comments: pageSize=${settings.comments.pageSize}, compose=${settings.comments.compose} (comments are posted only on user action)`);
 }
 
 /**
@@ -64,7 +65,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const eventBus = new EventBus();
     const settings = new SettingsManager(eventBus, logger);
     const secrets = new SecretsManager(context.secrets, eventBus, logger);
-    const gitService = new GitService(eventBus, logger);
+    const gitService = new GitService(eventBus, logger, context.workspaceState);
     const providerManager = new ProviderManager(settings, secrets, gitService, eventBus, logger);
 
     const ctx: PilotContext = {

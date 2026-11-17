@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { mrRef, mrTerm, oneLine } from '../../core/format';
+import { mrRef, mrTerm, oneLine, repoHint, withRepoContext } from '../../core/format';
 import { labelGroup } from '../../core/labels';
 import { isStatusLabel, statusValue } from '../../core/providers/baseProvider';
-import type { EntityKind, EntityRef, SyncState } from '../../core/types';
+import type { EntityKind, EntityRef, RepoSummary, SyncState } from '../../core/types';
 import { SectionView, TreeNode } from '../../core/ui/sectionView';
 import { type CatalogData, buildAllLabelsNode } from './catalogTree';
 import { COMMANDS, type SyncViewState } from './statusBarUi';
@@ -43,6 +43,8 @@ export class LabelsTree implements vscode.Disposable {
     private readonly getSettings: () => LabelsTreeSettings,
     /** The lazily loaded catalog; `null` until "All labels" is first expanded. */
     private readonly getCatalog: () => CatalogData | null,
+    /** The active repository, shown in the section header and empty-state messages. */
+    private readonly getRepo: () => RepoSummary | null,
   ) {}
 
   get view(): vscode.TreeView<TreeNode> {
@@ -56,25 +58,33 @@ export class LabelsTree implements vscode.Disposable {
   render(view: SyncViewState): void {
     const s = this.section;
     const settings = this.getSettings();
+    const repo = this.getRepo();
+    // With several repositories open, a section that shows no Issue may simply be looking at the wrong
+    // one (the sections follow the focused file): offer the switch right there.
+    const switchRepo = repo && repo.repoCount > 1 && view.kind !== 'ready' ? [node('Select repository…', 'repo', 'Pin a repository, or follow the active editor', COMMANDS.selectRepository)] : [];
+    const out = (roots: TreeNode[], message?: string) => s.render([...switchRepo, ...roots], message);
+    const describe = (base?: string) => {
+      s.description = withRepoContext(base, repo);
+    };
     switch (view.kind) {
       case 'hidden':
-        s.description = undefined;
-        return s.render([], `${view.reason}.`);
+        describe();
+        return out([], `${view.reason}.${repoHint(repo)}`);
       case 'noIssue':
-        s.description = view.branch ?? undefined;
-        return s.render([this.allLabelsNode(null, settings)], view.reason);
+        describe(view.branch ?? undefined);
+        return out([this.allLabelsNode(null, settings)], `${view.reason}${repoHint(repo)}`);
       case 'unknownPlatform':
-        s.description = undefined;
-        return s.render([node(`Choose the platform for ${view.host}…`, 'question', 'Cannot tell whether this host is GitLab or GitHub.', COMMANDS.setToken)]);
+        describe();
+        return out([node(`Choose the platform for ${view.host}…`, 'question', 'Cannot tell whether this host is GitLab or GitHub.', COMMANDS.setToken)]);
       case 'missingToken':
-        s.description = undefined;
-        return s.render([node(`Set an API token for ${view.host}…`, 'key', 'No token stored for this host.', COMMANDS.setToken)]);
+        describe();
+        return out([node(`Set an API token for ${view.host}…`, 'key', 'No token stored for this host.', COMMANDS.setToken)]);
       case 'syncing':
-        s.description = `#${view.issueNumber}`;
-        return s.render([node(`Loading issue #${view.issueNumber}…`, 'sync~spin'), this.allLabelsNode(null, settings)]);
+        describe(`#${view.issueNumber}`);
+        return out([node(`Loading issue #${view.issueNumber}…`, 'sync~spin'), this.allLabelsNode(null, settings)]);
       case 'issueNotFound':
-        s.description = `#${view.issueNumber}`;
-        return s.render([
+        describe(`#${view.issueNumber}`);
+        return out([
           node(
             `Issue #${view.issueNumber} not found`,
             'circle-slash',
@@ -84,8 +94,8 @@ export class LabelsTree implements vscode.Disposable {
           this.allLabelsNode(null, settings),
         ]);
       case 'error':
-        s.description = view.issueNumber ? `#${view.issueNumber}` : undefined;
-        return s.render(
+        describe(view.issueNumber ? `#${view.issueNumber}` : undefined);
+        return out(
           view.authError
             ? [node('Token rejected — update the API token…', new vscode.ThemeIcon('key', ERROR_COLOR), view.message, COMMANDS.setToken)]
             : [
@@ -94,8 +104,8 @@ export class LabelsTree implements vscode.Disposable {
               ],
         );
       case 'ready':
-        s.description = `#${view.state.issue.id}`;
-        return s.render(this.stateNodes(view.state, view.lastSyncAt, settings));
+        describe(`#${view.state.issue.id}`);
+        return out(this.stateNodes(view.state, view.lastSyncAt, settings));
     }
   }
 

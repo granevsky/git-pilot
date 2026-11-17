@@ -88,6 +88,7 @@ export type ProviderErrorKind =
   | 'network'
   | 'http'
   | 'invalidResponse'
+  | 'invalidRequest'
   | 'insecure';
 
 export class ProviderError extends Error {
@@ -139,6 +140,8 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_PAGES = 10;
 const MAX_REDIRECTS = 3;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+/** Longest comment Git Pilot posts (GitHub's hard limit is 65 536 characters). */
+export const MAX_COMMENT_LENGTH = 65_000;
 
 export abstract class BaseProvider implements GitPlatformProvider {
   abstract readonly platform: Platform;
@@ -277,6 +280,33 @@ export abstract class BaseProvider implements GitPlatformProvider {
     const labels = await this.writeLabels(entity, kind, entity.allLabels, next);
     // `updatedAt` is intentionally kept so the "latest MR" ordering stays stable.
     return { ...entity, allLabels: labels, statusLabel: findStatusLabel(labels, this.labelPrefix) };
+  }
+
+  // ----- comments (shared validation) --------------------------------------
+
+  /** IDs are interpolated into API paths; never trust their runtime type. */
+  protected assertEntityId(entity: EntityRef, kind: EntityKind): number {
+    if (!Number.isSafeInteger(entity.id) || entity.id <= 0) {
+      throw new ProviderError(`Invalid ${kind} id: ${String(entity.id)}`, 'invalidRequest');
+    }
+    return entity.id;
+  }
+
+  /** Trims and validates a comment before it is sent. */
+  protected assertCommentBody(body: string): string {
+    const text = typeof body === 'string' ? body.trim() : '';
+    if (!text) {
+      throw new ProviderError('The comment is empty', 'invalidRequest');
+    }
+    if (text.length > MAX_COMMENT_LENGTH) {
+      throw new ProviderError(`The comment is too long (${text.length} of ${MAX_COMMENT_LENGTH} characters)`, 'invalidRequest');
+    }
+    return text;
+  }
+
+  /** Server-supplied comment id as a digit string, or `null` when it is not a positive safe integer. */
+  protected commentId(raw: unknown): string | null {
+    return typeof raw === 'number' && Number.isSafeInteger(raw) && raw > 0 ? String(raw) : null;
   }
 
   // ----- HTTP client ---------------------------------------------------------

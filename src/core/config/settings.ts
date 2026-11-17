@@ -26,6 +26,18 @@ export interface LabelsSettings {
   groups: string[];
 }
 
+export const DEFAULT_COMMENTS_PAGE_SIZE = 10;
+const MAX_COMMENTS_PAGE_SIZE = 50;
+
+export type CommentComposeMode = 'quick' | 'editor';
+
+export interface CommentsSettings {
+  /** Comments loaded per page (the "Show more" step). */
+  pageSize: number;
+  /** `quick`: one-line input box (Enter posts, a button opens the editor); `editor`: always a Markdown draft. */
+  compose: CommentComposeMode;
+}
+
 /**
  * Typed, validated view over `vscode.workspace.getConfiguration('gitPilot')`.
  * Values are read lazily so they always reflect the current configuration.
@@ -138,6 +150,14 @@ export class SettingsManager implements vscode.Disposable {
       .filter((g) => g.length > 0 && g.length <= MAX_LABEL_MASK_LENGTH)
       .slice(0, MAX_LABEL_GROUPS);
     return { groups };
+  }
+
+  get comments(): CommentsSettings {
+    const size = Number(this.config.get<number>('comments.pageSize', DEFAULT_COMMENTS_PAGE_SIZE));
+    return {
+      pageSize: Number.isFinite(size) ? Math.min(MAX_COMMENTS_PAGE_SIZE, Math.max(1, Math.floor(size))) : DEFAULT_COMMENTS_PAGE_SIZE,
+      compose: this.config.get<string>('comments.compose', 'quick') === 'editor' ? 'editor' : 'quick',
+    };
   }
 
   dispose(): void {

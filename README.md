@@ -34,6 +34,7 @@ Instead of switching to the browser to move a task across the board or fix misma
 - **Scoped labels on any platform** — enforces mutually exclusive label groups (`status:*`, `app:*`, etc.) on GitHub and GitLab Free just like GitLab Premium's `::` scoped labels.
 - **Controlled sync from MR/PR** — highlights when an Issue and its MR/PR go out of sync and lets you preview and apply the exact label diff with confirmation.
 - **Project label catalog** — browse all project labels grouped by prefix or custom masks, see where each label is applied, and attach or remove them in place.
+- **Comments** — read the human comments of the Issue and its MRs/PRs (newest first, without automatic system notes) and post new ones without leaving the editor.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -87,6 +88,30 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 - Labels currently applied to the branch's Issue or MRs/PRs are marked with `✓` and show where they are used (*Issue · MR !5*).
 - Hover over any label to `+` add it, `✕` remove it (with **Undo**), apply a status with `✓`, or copy the label name from its context menu.
 - Status labels live in the `status:*` group — click `✓` on one to apply it to the Issue and all open MRs/PRs.
+
+#### Several repositories
+
+When a window has several git repositories (multi-root workspace or nested repos), the sections follow the repository of the file you are editing, so opening a file of an unrelated repository switches them to that repository's branch. To stay on one repository whatever file is open, run **Git Pilot: Select Repository…** (also in the `…` menu of each section) and pin it; choose **Follow the active editor** to go back. The pin is remembered per workspace. With several repositories open (or one pinned), the section headers and empty-state messages name the repository, e.g. `#5 · NAS_back (pinned)`, and empty sections offer a **Select repository…** shortcut.
+
+#### Comments section
+
+Shows the comments of the Issue for the current branch and of each of its open MRs/PRs, **newest first**:
+
+```text
+COMMENTS · #3                                              [💬] [⟳]
+ ▾ Issue #3   Add a sidebar                                  [💬] [↗]
+     💬 Add comment…
+     @alice   2 h ago · Checked on staging, works
+     @bob     yesterday · [media] reproduces on Safari          [↗]
+     ⌄ Show more…                                       10 older
+ ▸ MR !5   Draft: sidebar                                    [💬] [↗]
+```
+
+- **Only real comments** — automatic entries (label, weight, assignee or milestone changes, "mentioned in commit", …) are filtered out. On GitHub only the PR conversation is shown, not code-review comments.
+- **Lazy and paged** — comments of an Issue/MR/PR are loaded when you expand its node; **Show more…** loads the next, older page (`gitPilot.comments.pageSize`, default 10). The **Refresh** button reloads the expanded nodes. The list of Issue/MRs itself follows the **Labels** section.
+- **Reading** — click a comment to open its full text in a read-only editor tab (plain text, never rendered as HTML).
+- **Images and videos** are not displayed in VS Code. A comment that embeds media gets a `🖼` icon; use `↗` **Open in Browser** on the comment to jump straight to it (`#note_…` / `#issuecomment-…`) on the web page, where attachments open with your normal browser session.
+- **Writing** — `💬` **Add comment…** (first row under every Issue/MR/PR) opens a one-line input box: type and press **Enter** to post. The `✎` button in the box moves your text into a Markdown draft in an editor for longer, multi-line comments; there, press **Ctrl+Enter** (⌘+Enter on macOS) or the **Send** button in the editor title. If posting fails, the error offers **Continue in Draft** so nothing you typed is lost. Set `gitPilot.comments.compose` to `"editor"` to always start with a draft. Nothing is ever posted without you pressing Enter / Send. Posting needs write access (see [Authentication & Permissions](#en-authentication)).
 
 #### Status bar
 
@@ -162,6 +187,8 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | `gitPilot.labelSync.labelPrefix` | `"status:"` | Prefix for status labels (`"status:"` or `"status::"`). Both `:` and `::` variants are matched when replacing a status. |
 | `gitPilot.labelSync.refreshInterval` | `120` | Background read-only refresh interval in seconds while the window is focused (`0` disables polling; minimum `10`). |
 | `gitPilot.labels.groups` | `[]` | Glob masks for grouping labels in display order, e.g. `["status:*", "app:*"]` (`*` matches any characters, `?` matches one, `:` also matches `::`). Leave empty to group automatically by prefix before `:` / `::`. |
+| `gitPilot.comments.compose` | `"quick"` | `"quick"`: **Add comment…** opens a one-line input box (Enter posts; a button moves the text to an editor). `"editor"`: always start with a Markdown draft. |
+| `gitPilot.comments.pageSize` | `10` | Comments loaded per page in the **Comments** section (1–50). On GitLab the number is approximate, because system notes are skipped after loading. |
 | `gitPilot.allowInsecureHttp` | `false` | User-level setting only. Allows sending API requests over plain `http://` when `instanceUrl` explicitly uses `http://`. |
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
@@ -177,6 +204,10 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | Git Pilot: Add Labels… | `gitPilot.labelSync.addLabel` |
 | Git Pilot: Labels: Sync from MR / PR… | `gitPilot.labelSync.syncFromMr` |
 | Git Pilot: Labels: Refresh | `gitPilot.labelSync.refresh` |
+| Git Pilot: Comments: Add Comment… | `gitPilot.comments.add` |
+| Git Pilot: Comments: Send Comment *(while a draft is open)* | `gitPilot.comments.send` |
+| Git Pilot: Comments: Refresh | `gitPilot.comments.refresh` |
+| Git Pilot: Select Repository… | `gitPilot.selectRepository` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Logs are written to **Output → Git Pilot**. Switch the log level to **Trace** to inspect API requests (tokens are never logged).
@@ -195,6 +226,7 @@ Because a cloned repository controls its own remote URLs, branch names, and `.vs
 - **Host-pinned tokens & HTTPS by default** — a token is kept in an isolated private field in memory and sent only to the exact API origin it was saved for; cross-origin redirects are blocked, and `github.com` / `gitlab.com` are pinned to their canonical platforms and API origins. Both `gitPilot.instanceUrl` and `gitPilot.allowInsecureHttp` are user-scoped (`machine`) settings, so a repository's `.vscode/settings.json` cannot redirect API requests or downgrade HTTPS.
 - **No credential leaks in logs** — tokens and embedded URL credentials (`user:token@`) are automatically redacted before any URL reaches the Output channel.
 - **Same-project scope** — MRs/PRs from external forks or other projects that mention your issue are ignored, and label writes target only the current repository.
+- **Comments are untrusted text** — comment bodies are shown as plain text only (never rendered as HTML or trusted Markdown), links to comments must point to your instance's web host, and a comment is posted only when you press Send in a draft you opened yourself.
 
 <sub>[↑ Contents](#en) · [Русский](#ru) · [↑ Top](#top)</sub>
 
@@ -227,6 +259,7 @@ Because a cloned repository controls its own remote URLs, branch names, and `.vs
 - **Взаимоисключающие метки (scoped labels) везде** — группы вроде `status:*` или `app:*` работают как scoped labels из GitLab Premium даже в GitHub и бесплатном GitLab CE.
 - **Наглядная синхронизация с MR/PR** — подсвечивает расхождения меток между задачей и MR/PR и позволяет синхронизировать их после предпросмотра изменений.
 - **Каталог меток проекта** — показывает все метки репозитория (с группировкой по префиксам или своим маскам), отмечает уже применённые к текущей ветке и позволяет быстро добавлять или снимать их.
+- **Комментарии** — читайте комментарии людей к задаче и её MR/PR (сначала новые, без автоматических системных записей) и оставляйте свои, не выходя из редактора.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -280,6 +313,30 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 - Метки, которые уже стоят на текущей задаче или её MR/PR, отмечаются галочкой `✓` с подписью, где именно они применены (*Issue · MR !5*).
 - Кнопками на строке можно добавить (`+`) или снять (`✕`) метку, применить статус (`✓`) или скопировать название метки через контекстное меню.
 - Статусные метки находятся в группе `status:*` — кнопка `✓` применяет статус к задаче и всем открытым MR/PR.
+
+#### Несколько репозиториев
+
+Если в окне открыто несколько git-репозиториев (multi-root workspace или вложенные репозитории), разделы следуют за репозиторием файла, который вы редактируете: открыли файл из постороннего репозитория — разделы переключились на его ветку. Чтобы остаться на одном репозитории при любом открытом файле, вызовите **Git Pilot: Select Repository…** (команда есть и в меню `…` каждого раздела) и закрепите нужный; пункт **Follow the active editor** возвращает прежнее поведение. Закрепление запоминается для рабочей области. Когда открыто несколько репозиториев (или один закреплён), заголовки разделов и сообщения о пустом состоянии называют репозиторий, например `#5 · NAS_back (pinned)`, а в пустых разделах появляется быстрая ссылка **Select repository…**.
+
+#### Раздел Comments
+
+Показывает комментарии к задаче текущей ветки и к каждому её открытому MR/PR, **сначала новые**:
+
+```text
+COMMENTS · #3                                              [💬] [⟳]
+ ▾ Issue #3   Add a sidebar                                  [💬] [↗]
+     💬 Add comment…
+     @alice   2 h ago · Checked on staging, works
+     @bob     yesterday · [media] reproduces on Safari          [↗]
+     ⌄ Show more…                                       10 older
+ ▸ MR !5   Draft: sidebar                                    [💬] [↗]
+```
+
+- **Только настоящие комментарии** — автоматические записи (смена меток, веса, исполнителя или milestone, «mentioned in commit» и т. п.) отфильтровываются. В GitHub показывается только обсуждение PR, без комментариев код-ревью.
+- **Лениво и постранично** — комментарии задачи или MR/PR загружаются при раскрытии узла; **Show more…** подгружает следующую, более старую порцию (`gitPilot.comments.pageSize`, по умолчанию 10). Кнопка **Refresh** перезагружает раскрытые узлы. Сам список задачи и MR/PR берётся из раздела **Labels**.
+- **Чтение** — клик по комментарию открывает его полный текст в редакторе только для чтения (простой текст, никогда не рендерится как HTML).
+- **Изображения и видео** в VS Code не отображаются. У комментария со вложениями значок `🖼`; кнопка `↗` **Open in Browser** на комментарии открывает его на странице в браузере (`#note_…` / `#issuecomment-…`), где вложения открываются с вашей обычной сессией.
+- **Написание** — `💬` **Add comment…** (первая строка под каждой задачей/MR/PR) открывает однострочное поле ввода: наберите текст и нажмите **Enter**, чтобы отправить. Кнопка `✎` в поле переносит текст в черновик в редакторе для длинных многострочных комментариев в Markdown; там отправка — **Ctrl+Enter** (⌘+Enter на macOS) или кнопка **Send** в заголовке редактора. Если отправка не удалась, в сообщении об ошибке есть кнопка **Continue in Draft**, так что набранный текст не пропадёт. Чтобы всегда начинать с черновика, задайте `gitPilot.comments.compose` = `"editor"`. Без вашего нажатия Enter / Send ничего не публикуется. Для отправки нужны права на запись (см. [Токен и права доступа](#ru-authentication)).
 
 #### Строка состояния (Status Bar)
 
@@ -355,6 +412,8 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 | `gitPilot.labelSync.labelPrefix` | `"status:"` | Префикс статусных меток (`"status:"` или `"status::"`). При замене статуса учитываются оба варианта (`:` и `::`). |
 | `gitPilot.labelSync.refreshInterval` | `120` | Интервал фонового обновления данных в секундах, пока окно VS Code активно (`0` — выключить автообновление; минимум — `10`). |
 | `gitPilot.labels.groups` | `[]` | Маски группировки меток в нужном порядке, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ, `:` также совпадает с `::`). Если массив пуст, метки группируются автоматически по префиксу до `:` / `::`. |
+| `gitPilot.comments.compose` | `"quick"` | `"quick"`: **Add comment…** открывает однострочное поле ввода (Enter отправляет; кнопка переносит текст в редактор). `"editor"`: всегда начинать с черновика в Markdown. |
+| `gitPilot.comments.pageSize` | `10` | Сколько комментариев загружается за раз в разделе **Comments** (1–50). В GitLab число приблизительное: системные записи отбрасываются уже после загрузки. |
 | `gitPilot.allowInsecureHttp` | `false` | Только на уровне настроек пользователя. Разрешает отправку запросов по незашифрованному `http://`, если в `instanceUrl` явно указан `http://`. |
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
@@ -370,6 +429,10 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 | Git Pilot: Add Labels… | `gitPilot.labelSync.addLabel` |
 | Git Pilot: Labels: Sync from MR / PR… | `gitPilot.labelSync.syncFromMr` |
 | Git Pilot: Labels: Refresh | `gitPilot.labelSync.refresh` |
+| Git Pilot: Comments: Add Comment… | `gitPilot.comments.add` |
+| Git Pilot: Comments: Send Comment *(пока открыт черновик)* | `gitPilot.comments.send` |
+| Git Pilot: Comments: Refresh | `gitPilot.comments.refresh` |
+| Git Pilot: Select Repository… | `gitPilot.selectRepository` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Логи работы пишутся в панель **Output → Git Pilot**. Для отладки сетевых запросов переключите уровень логирования на **Trace** (токены в лог никогда не выводятся).
@@ -388,5 +451,6 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 - **Привязка токена к хосту и обязательный HTTPS** — в памяти токен хранится в изолированном приватном поле и передаётся строго на тот API-хост, для которого он был сохранён; редиректы на другие домены блокируются, а для `github.com` и `gitlab.com` жёстко зафиксированы платформа и адрес API. Настройки `gitPilot.instanceUrl` и `gitPilot.allowInsecureHttp` задаются только на уровне пользователя (`machine`), поэтому `.vscode/settings.json` внутри репозитория не может перенаправить запросы или понизить протокол до HTTP.
 - **Защита логов от утечки секретов** — токены и встроенные в URL учётные данные (`user:token@`) автоматически маскируются перед выводом в панель `Output`.
 - **Изоляция в рамках текущего проекта** — чужие MR/PR из других репозиториев, упоминающие вашу задачу, отфильтровываются, а любые изменения меток отправляются только в текущий проект.
+- **Комментарии — недоверенный текст** — тело комментария показывается только как простой текст (никогда не рендерится как HTML или доверенный Markdown), ссылки на комментарии обязаны вести на веб-хост вашего инстанса, а комментарий публикуется только когда вы сами нажали Send в черновике, который сами открыли.
 
 <sub>[↑ Содержание](#ru) · [English](#en) · [↑ В начало](#top)</sub>
