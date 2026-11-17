@@ -158,9 +158,9 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. `"auto"` detects the platform from the remote hostname. Set explicitly for custom self-hosted domains. |
 | `gitPilot.instanceUrl` | `""` | User-level setting. Base URL override for self-hosted GitLab or GitHub Enterprise (e.g. `https://gitlab.company.com`, subpath instances like `https://host/gitlab` are supported). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Regular expression used to extract the issue number from the branch name (uses the **first capturing group**). |
-| `gitPilot.statusSync.showStatusBar` | `true` | Show the Issue / MR status item in the VS Code status bar. |
-| `gitPilot.statusSync.labelPrefix` | `"status:"` | Prefix for status labels (`"status:"` or `"status::"`). Both `:` and `::` variants are matched when replacing a status. |
-| `gitPilot.statusSync.refreshInterval` | `120` | Background read-only refresh interval in seconds while the window is focused (`0` disables polling; minimum `10`). |
+| `gitPilot.labelSync.showStatusBar` | `true` | Show the Issue / MR status item in the VS Code status bar. |
+| `gitPilot.labelSync.labelPrefix` | `"status:"` | Prefix for status labels (`"status:"` or `"status::"`). Both `:` and `::` variants are matched when replacing a status. |
+| `gitPilot.labelSync.refreshInterval` | `120` | Background read-only refresh interval in seconds while the window is focused (`0` disables polling; minimum `10`). |
 | `gitPilot.labels.groups` | `[]` | Glob masks for grouping labels in display order, e.g. `["status:*", "app:*"]` (`*` matches any characters, `?` matches one, `:` also matches `::`). Leave empty to group automatically by prefix before `:` / `::`. |
 | `gitPilot.allowInsecureHttp` | `false` | User-level setting only. Allows sending API requests over plain `http://` when `instanceUrl` explicitly uses `http://`. |
 
@@ -173,10 +173,10 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | Command | Command ID |
 | --- | --- |
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
-| Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
-| Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.statusSync.syncFromMr` |
-| Git Pilot: Labels: Refresh | `gitPilot.statusSync.refresh` |
+| Git Pilot: Change Status… | `gitPilot.labelSync.selectStatus` |
+| Git Pilot: Add Labels… | `gitPilot.labelSync.addLabel` |
+| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.labelSync.syncFromMr` |
+| Git Pilot: Labels: Refresh | `gitPilot.labelSync.refresh` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Logs are written to **Output → Git Pilot**. Switch the log level to **Trace** to inspect API requests (tokens are never logged).
@@ -351,9 +351,9 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. В режиме `"auto"` платформа определяется по домену remote. Для корпоративных серверов с нестандартным доменом укажите явно. |
 | `gitPilot.instanceUrl` | `""` | Только на уровне настроек пользователя. Базовый URL для собственного инстанса GitLab или GitHub Enterprise (например, `https://gitlab.company.com`; поддерживаются и подпути вроде `https://host/gitlab`). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Регулярное выражение для извлечения номера задачи из имени ветки (используется **первая группа захвата**). |
-| `gitPilot.statusSync.showStatusBar` | `true` | Показывать индикатор задачи и MR/PR в строке состояния VS Code. |
-| `gitPilot.statusSync.labelPrefix` | `"status:"` | Префикс статусных меток (`"status:"` или `"status::"`). При замене статуса учитываются оба варианта (`:` и `::`). |
-| `gitPilot.statusSync.refreshInterval` | `120` | Интервал фонового обновления данных в секундах, пока окно VS Code активно (`0` — выключить автообновление; минимум — `10`). |
+| `gitPilot.labelSync.showStatusBar` | `true` | Показывать индикатор задачи и MR/PR в строке состояния VS Code. |
+| `gitPilot.labelSync.labelPrefix` | `"status:"` | Префикс статусных меток (`"status:"` или `"status::"`). При замене статуса учитываются оба варианта (`:` и `::`). |
+| `gitPilot.labelSync.refreshInterval` | `120` | Интервал фонового обновления данных в секундах, пока окно VS Code активно (`0` — выключить автообновление; минимум — `10`). |
 | `gitPilot.labels.groups` | `[]` | Маски группировки меток в нужном порядке, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ, `:` также совпадает с `::`). Если массив пуст, метки группируются автоматически по префиксу до `:` / `::`. |
 | `gitPilot.allowInsecureHttp` | `false` | Только на уровне настроек пользователя. Разрешает отправку запросов по незашифрованному `http://`, если в `instanceUrl` явно указан `http://`. |
 
@@ -366,10 +366,10 @@ LABELS · #3                                         [🏷] [+] [⇅] [⟳]
 | Команда | ID команды |
 | --- | --- |
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
-| Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
-| Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.statusSync.syncFromMr` |
-| Git Pilot: Labels: Refresh | `gitPilot.statusSync.refresh` |
+| Git Pilot: Change Status… | `gitPilot.labelSync.selectStatus` |
+| Git Pilot: Add Labels… | `gitPilot.labelSync.addLabel` |
+| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.labelSync.syncFromMr` |
+| Git Pilot: Labels: Refresh | `gitPilot.labelSync.refresh` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Логи работы пишутся в панель **Output → Git Pilot**. Для отладки сетевых запросов переключите уровень логирования на **Trace** (токены в лог никогда не выводятся).

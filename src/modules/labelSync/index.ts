@@ -9,12 +9,12 @@ import { TreeNode } from '../../core/ui/sectionView';
 import { ALL_LABELS_ID, type CatalogData } from './catalogTree';
 import { pickLabels, pickTargets } from './labelPicker';
 import { COMMANDS, StatusBarUi, type SyncViewState } from './statusBarUi';
-import { StatusTree } from './statusTree';
+import { LabelsTree } from './labelsTree';
 import { SyncEngine, type LabelEdit } from './syncEngine';
 import { buildSyncPlan, describeChanges, entityKeys, entityName, findConflict, findEntity, hasChanges } from './syncPlan';
 
 /** Settings whose change only affects presentation of the section / status bar. */
-const RENDER_SETTINGS = ['gitPilot.statusSync.showStatusBar', 'gitPilot.statusSync.labelPrefix', 'gitPilot.labels.groups'];
+const RENDER_SETTINGS = ['gitPilot.labelSync.showStatusBar', 'gitPilot.labelSync.labelPrefix', 'gitPilot.labels.groups'];
 /** Settings that change which project is resolved, so the cached label catalog is stale. */
 const RELOAD_SETTINGS = ['gitPilot.provider', 'gitPilot.instanceUrl', 'gitPilot.allowInsecureHttp'];
 
@@ -30,13 +30,13 @@ const MAX_DETAIL_LINES = 12;
  * The "All labels" node lists the project's label catalog (loaded lazily, on first expansion).
  * Nothing is written automatically.
  */
-export class StatusSyncModule implements PilotModule {
-  readonly id = 'statusSync';
+export class LabelSyncModule implements PilotModule {
+  readonly id = 'labelSync';
 
   private ctx: PilotContext | undefined;
   private engine: SyncEngine | undefined;
   private ui: StatusBarUi | undefined;
-  private tree: StatusTree | undefined;
+  private tree: LabelsTree | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
   // Label catalog behind the "All labels" node.
@@ -48,10 +48,10 @@ export class StatusSyncModule implements PilotModule {
 
   activate(ctx: PilotContext): void {
     this.ctx = ctx;
-    const ui = (this.ui = new StatusBarUi(() => ctx.settings.statusSync.labelPrefix));
-    const tree = (this.tree = new StatusTree(
+    const ui = (this.ui = new StatusBarUi(() => ctx.settings.labelSync.labelPrefix));
+    const tree = (this.tree = new LabelsTree(
       () => ({
-        prefix: ctx.settings.statusSync.labelPrefix,
+        prefix: ctx.settings.labelSync.labelPrefix,
         masks: ctx.settings.labels.groups,
       }),
       () => this.catalog,
@@ -89,7 +89,7 @@ export class StatusSyncModule implements PilotModule {
   }
 
   private render(view: SyncViewState): void {
-    this.ui?.render(this.ctx?.settings.statusSync.showStatusBar ? view : { kind: 'hidden', reason: 'Status bar item disabled' });
+    this.ui?.render(this.ctx?.settings.labelSync.showStatusBar ? view : { kind: 'hidden', reason: 'Status bar item disabled' });
     this.tree?.render(view);
   }
 
@@ -214,7 +214,7 @@ export class StatusSyncModule implements PilotModule {
     if (!state) {
       return; // the view / error message already explains why
     }
-    const plan = buildSyncPlan(state, ctx.settings.statusSync.labelPrefix);
+    const plan = buildSyncPlan(state, ctx.settings.labelSync.labelPrefix);
     const term = mrTerm(state.platform);
     const source = plan.source;
     if (!source) {
@@ -267,7 +267,7 @@ export class StatusSyncModule implements PilotModule {
       return;
     }
     const label = node instanceof TreeNode ? node.value : undefined;
-    if (!label || !isStatusLabel(label, this.ctx.settings.statusSync.labelPrefix)) {
+    if (!label || !isStatusLabel(label, this.ctx.settings.labelSync.labelPrefix)) {
       await this.selectStatus();
       return;
     }
@@ -291,7 +291,7 @@ export class StatusSyncModule implements PilotModule {
     if (!state) {
       return;
     }
-    const outOfSync = hasChanges(buildSyncPlan(state, this.ctx?.settings.statusSync.labelPrefix ?? ''));
+    const outOfSync = hasChanges(buildSyncPlan(state, this.ctx?.settings.labelSync.labelPrefix ?? ''));
     const pick = await this.ui.pickStatus(state, findConflict(state) ?? undefined, outOfSync);
     if (!pick) {
       return;
@@ -329,7 +329,7 @@ export class StatusSyncModule implements PilotModule {
     }
     const node = arg instanceof TreeNode ? arg : undefined;
     const preset = node && !node.entity ? node.value : undefined;
-    if (preset && isStatusLabel(preset, ctx.settings.statusSync.labelPrefix)) {
+    if (preset && isStatusLabel(preset, ctx.settings.labelSync.labelPrefix)) {
       await engine.applyStatus(preset);
       return;
     }
@@ -365,7 +365,7 @@ export class StatusSyncModule implements PilotModule {
         exclude: onAll,
         current: targetLabels.flat(),
         masks: ctx.settings.labels.groups,
-        statusPrefix: ctx.settings.statusSync.labelPrefix,
+        statusPrefix: ctx.settings.labelSync.labelPrefix,
       });
     }
     if (labels?.length) {
@@ -382,7 +382,7 @@ export class StatusSyncModule implements PilotModule {
   private async removeLabel(arg: unknown): Promise<void> {
     const engine = this.engine;
     const ctx = this.ctx;
-    if (!engine || !ctx || !(arg instanceof TreeNode) || !arg.value || isStatusLabel(arg.value, ctx.settings.statusSync.labelPrefix)) {
+    if (!engine || !ctx || !(arg instanceof TreeNode) || !arg.value || isStatusLabel(arg.value, ctx.settings.labelSync.labelPrefix)) {
       return;
     }
     const label = arg.value;
@@ -447,7 +447,7 @@ export class StatusSyncModule implements PilotModule {
       exclude: new Set([target.label.toLowerCase()]),
       current: [target.label],
       masks: ctx.settings.labels.groups,
-      statusPrefix: ctx.settings.statusSync.labelPrefix,
+      statusPrefix: ctx.settings.labelSync.labelPrefix,
       onlyGroup: group.key,
     });
     if (picked?.length) {
@@ -480,7 +480,7 @@ export class StatusSyncModule implements PilotModule {
   /** A non-status label node of the Labels section that belongs to a known entity. */
   private labelTarget(arg: unknown): { entity: string; label: string; where: string } | null {
     const state = this.engine?.currentState;
-    const prefix = this.ctx?.settings.statusSync.labelPrefix ?? '';
+    const prefix = this.ctx?.settings.labelSync.labelPrefix ?? '';
     if (!(arg instanceof TreeNode) || !arg.entity || !arg.value || !state || isStatusLabel(arg.value, prefix)) {
       return null;
     }

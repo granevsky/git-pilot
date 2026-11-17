@@ -13,7 +13,7 @@ const MAX_REGEX_LENGTH = 300;
 const MAX_LABEL_GROUPS = 50;
 const MAX_LABEL_MASK_LENGTH = 100;
 
-export interface StatusSyncSettings {
+export interface LabelSyncSettings {
   /** Show the status bar item. */
   showStatusBar: boolean;
   labelPrefix: string;
@@ -119,12 +119,12 @@ export class SettingsManager implements vscode.Disposable {
     return regex;
   }
 
-  get statusSync(): StatusSyncSettings {
+  get labelSync(): LabelSyncSettings {
     const cfg = this.config;
-    const interval = Number(cfg.get<number>('statusSync.refreshInterval', 120));
+    const interval = Number(cfg.get<number>('labelSync.refreshInterval', 120));
     return {
-      showStatusBar: cfg.get<boolean>('statusSync.showStatusBar', true),
-      labelPrefix: cfg.get<string>('statusSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
+      showStatusBar: cfg.get<boolean>('labelSync.showStatusBar', true),
+      labelPrefix: cfg.get<string>('labelSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
       refreshInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,
     };
   }

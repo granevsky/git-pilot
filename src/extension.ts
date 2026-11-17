@@ -28,7 +28,7 @@ function modeName(mode: vscode.ExtensionMode): string {
 /** Startup banner: versions, environment and effective (non-secret) settings. */
 function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: SettingsManager): void {
   const version = String(context.extension.packageJSON.version ?? 'unknown');
-  const sync = settings.statusSync;
+  const sync = settings.labelSync;
   const labels = settings.labels;
   logger.info(`===== Git Pilot v${version} starting =====`);
   logger.info(

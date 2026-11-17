@@ -176,7 +176,7 @@ export abstract class BaseProvider implements GitPlatformProvider {
   // ----- shared status logic -----------------------------------------------
 
   protected get labelPrefix(): string {
-    return this.settings.statusSync.labelPrefix;
+    return this.settings.labelSync.labelPrefix;
   }
 
   protected toStatus(labels: string[]): string | null {

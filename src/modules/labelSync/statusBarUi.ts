@@ -27,16 +27,16 @@ export type StatusPickResult =
 
 export const COMMANDS = {
   setToken: 'gitPilot.setToken',
-  selectStatus: 'gitPilot.statusSync.selectStatus',
-  refresh: 'gitPilot.statusSync.refresh',
-  syncFromMr: 'gitPilot.statusSync.syncFromMr',
+  selectStatus: 'gitPilot.labelSync.selectStatus',
+  refresh: 'gitPilot.labelSync.refresh',
+  syncFromMr: 'gitPilot.labelSync.syncFromMr',
   openInBrowser: 'gitPilot.openInBrowser',
-  applyStatus: 'gitPilot.statusSync.applyStatus',
-  addLabel: 'gitPilot.statusSync.addLabel',
-  removeLabel: 'gitPilot.statusSync.removeLabel',
-  replaceLabel: 'gitPilot.statusSync.replaceLabel',
-  copyLabel: 'gitPilot.statusSync.copyLabelToOthers',
-  copyName: 'gitPilot.statusSync.copyLabelName',
+  applyStatus: 'gitPilot.labelSync.applyStatus',
+  addLabel: 'gitPilot.labelSync.addLabel',
+  removeLabel: 'gitPilot.labelSync.removeLabel',
+  replaceLabel: 'gitPilot.labelSync.replaceLabel',
+  copyLabel: 'gitPilot.labelSync.copyLabelToOthers',
+  copyName: 'gitPilot.labelSync.copyLabelName',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ export class StatusBarUi implements vscode.Disposable {
   private readonly item: vscode.StatusBarItem;
 
   constructor(private readonly getPrefix: () => string) {
-    this.item = vscode.window.createStatusBarItem('gitPilot.statusSync', vscode.StatusBarAlignment.Left, 50);
+    this.item = vscode.window.createStatusBarItem('gitPilot.labelSync', vscode.StatusBarAlignment.Left, 50);
     this.item.name = 'Git Pilot: Labels';
   }
 
