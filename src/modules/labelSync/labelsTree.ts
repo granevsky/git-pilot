@@ -1,13 +1,14 @@
 import * as vscode from 'vscode';
 import { mrRef, mrTerm, oneLine } from '../../core/format';
 import { labelGroup } from '../../core/labels';
-import { isStatusLabel, sameStatus, statusValue } from '../../core/providers/baseProvider';
+import { isStatusLabel, statusValue } from '../../core/providers/baseProvider';
 import type { EntityKind, EntityRef, SyncState } from '../../core/types';
 import { SectionView, TreeNode } from '../../core/ui/sectionView';
+import { type CatalogData, buildAllLabelsNode } from './catalogTree';
 import { COMMANDS, type SyncViewState } from './statusBarUi';
 import { type SyncPlan, buildSyncPlan, describeChanges, entityKey, entityName, hasChanges } from './syncPlan';
 
-export const STATUS_VIEW_ID = 'gitPilot.statusSync';
+export const LABELS_VIEW_ID = 'gitPilot.labelSync';
 
 const OK_COLOR = new vscode.ThemeColor('charts.green');
 const STATUS_COLOR = new vscode.ThemeColor('charts.blue');
@@ -25,20 +26,32 @@ interface Place {
   labels: Set<string>;
 }
 
-export interface StatusTreeSettings {
+export interface LabelsTreeSettings {
   prefix: string;
   masks: string[];
 }
 
 /**
- * Sidebar section "Issue & MR": sync status (quick status change, confirmed sync from the MR/PR),
+ * Sidebar section "Labels": sync status (quick status change, confirmed sync from the MR/PR),
  * the current Issue and its open MRs/PRs with their labels (add / remove / replace / copy), and
- * the list of status labels. Renders the same view model as the status bar item.
+ * "All labels" — the project's label catalog. Renders the same view model as the status bar item.
  */
-export class StatusTree implements vscode.Disposable {
-  private readonly section = new SectionView(STATUS_VIEW_ID, { showCollapseAll: true });
+export class LabelsTree implements vscode.Disposable {
+  private readonly section = new SectionView(LABELS_VIEW_ID, { showCollapseAll: true });
 
-  constructor(private readonly getSettings: () => StatusTreeSettings) {}
+  constructor(
+    private readonly getSettings: () => LabelsTreeSettings,
+    /** The lazily loaded catalog; `null` until "All labels" is first expanded. */
+    private readonly getCatalog: () => CatalogData | null,
+  ) {}
+
+  get view(): vscode.TreeView<TreeNode> {
+    return this.section.view;
+  }
+
+  withProgress<T>(task: () => Promise<T>): Promise<T> {
+    return this.section.withProgress(task);
+  }
 
   render(view: SyncViewState): void {
     const s = this.section;
@@ -49,7 +62,7 @@ export class StatusTree implements vscode.Disposable {
         return s.render([], `${view.reason}.`);
       case 'noIssue':
         s.description = view.branch ?? undefined;
-        return s.render([], view.reason);
+        return s.render([this.allLabelsNode(null, settings)], view.reason);
       case 'unknownPlatform':
         s.description = undefined;
         return s.render([node(`Choose the platform for ${view.host}…`, 'question', 'Cannot tell whether this host is GitLab or GitHub.', COMMANDS.setToken)]);
@@ -58,7 +71,7 @@ export class StatusTree implements vscode.Disposable {
         return s.render([node(`Set an API token for ${view.host}…`, 'key', 'No token stored for this host.', COMMANDS.setToken)]);
       case 'syncing':
         s.description = `#${view.issueNumber}`;
-        return s.render([node(`Loading issue #${view.issueNumber}…`, 'sync~spin')]);
+        return s.render([node(`Loading issue #${view.issueNumber}…`, 'sync~spin'), this.allLabelsNode(null, settings)]);
       case 'issueNotFound':
         s.description = `#${view.issueNumber}`;
         return s.render([
@@ -68,21 +81,25 @@ export class StatusTree implements vscode.Disposable {
             `Issue #${view.issueNumber} does not exist in ${view.projectPath} (or the token cannot see it). Click to retry.`,
             COMMANDS.refresh,
           ),
+          this.allLabelsNode(null, settings),
         ]);
       case 'error':
         s.description = view.issueNumber ? `#${view.issueNumber}` : undefined;
-        return s.render([
+        return s.render(
           view.authError
-            ? node('Token rejected — update the API token…', new vscode.ThemeIcon('key', ERROR_COLOR), view.message, COMMANDS.setToken)
-            : node(oneLine(view.message), new vscode.ThemeIcon('error', ERROR_COLOR), `${view.message}\n\nClick to retry.`, COMMANDS.refresh),
-        ]);
+            ? [node('Token rejected — update the API token…', new vscode.ThemeIcon('key', ERROR_COLOR), view.message, COMMANDS.setToken)]
+            : [
+                node(oneLine(view.message), new vscode.ThemeIcon('error', ERROR_COLOR), `${view.message}\n\nClick to retry.`, COMMANDS.refresh),
+                this.allLabelsNode(null, settings),
+              ],
+        );
       case 'ready':
         s.description = `#${view.state.issue.id}`;
         return s.render(this.stateNodes(view.state, view.lastSyncAt, settings));
     }
   }
 
-  private stateNodes(state: SyncState, lastSyncAt: Date, settings: StatusTreeSettings): TreeNode[] {
+  private stateNodes(state: SyncState, lastSyncAt: Date, settings: LabelsTreeSettings): TreeNode[] {
     const term = mrTerm(state.platform);
     const value = (label: string | null) => (label ? statusValue(label, settings.prefix) : 'no status');
     const time = lastSyncAt.toLocaleTimeString();
@@ -109,35 +126,16 @@ export class StatusTree implements vscode.Disposable {
       roots.push(node(`No open ${term} linked to this issue or branch`, 'git-pull-request'));
     }
 
-    // 3. Status list.
-    const current = state.issue.statusLabel;
-    const options = state.availableStatusLabels.map(
-      (label) =>
-        new TreeNode({
-          id: `status:${label.toLowerCase()}`,
-          label: oneLine(label),
-          description: sameStatus(label, current) ? 'current' : undefined,
-          tooltip: `Apply "${label}" to the issue and all open ${term}s`,
-          icon: sameStatus(label, current) ? new vscode.ThemeIcon('check', OK_COLOR) : 'circle-outline',
-          contextValue: sameStatus(label, current) ? 'statusOption current' : 'statusOption',
-          value: label,
-        }),
-    );
-    roots.push(
-      new TreeNode({
-        id: 'statuses',
-        label: 'Statuses',
-        description: `${options.length}`,
-        tooltip: `Status labels (prefix "${settings.prefix}"). Use the ✓ button to apply one.`,
-        icon: 'list-unordered',
-        children: options.length ? options : [node(`No labels starting with "${settings.prefix}"`, 'info')],
-        expanded: false,
-      }),
-    );
+    // 3. The project's whole label catalog (status labels included).
+    roots.push(this.allLabelsNode(state, settings));
     return roots;
   }
 
-  private entityNode(kind: EntityKind, title: string, entity: EntityRef, places: Place[], settings: StatusTreeSettings): TreeNode {
+  private allLabelsNode(state: SyncState | null, settings: LabelsTreeSettings): TreeNode {
+    return buildAllLabelsNode({ catalog: this.getCatalog(), state, statusPrefix: settings.prefix, masks: settings.masks });
+  }
+
+  private entityNode(kind: EntityKind, title: string, entity: EntityRef, places: Place[], settings: LabelsTreeSettings): TreeNode {
     const key = entityKey(kind, entity);
     const others = places.filter((p) => p.key !== key);
     const count = entity.allLabels.length;
@@ -156,7 +154,7 @@ export class StatusTree implements vscode.Disposable {
   }
 
   /** Labels of one Issue/MR, status first; each marked where it is missing. */
-  private labelNodes(key: string, entity: EntityRef, others: Place[], settings: StatusTreeSettings): TreeNode[] {
+  private labelNodes(key: string, entity: EntityRef, others: Place[], settings: LabelsTreeSettings): TreeNode[] {
     if (!entity.allLabels.length) {
       return [new TreeNode({ label: 'No labels — add…', icon: 'add', tooltip: 'Add labels', entity: key, command: COMMANDS.addLabel })];
     }

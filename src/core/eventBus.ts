@@ -19,7 +19,7 @@ export interface PilotEvents {
   configChanged: vscode.ConfigurationChangeEvent;
   authChanged: AuthChangeEvent;
   /**
-   * Issue/MR state published by Status Sync after every sync or label change; `null` when the
+   * Issue/MR state published by Label Sync after every sync or label change; `null` when the
    * current branch has no (loadable) issue any more.
    */
   syncStateChanged: SyncState | null;

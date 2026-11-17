@@ -20,7 +20,7 @@ export interface LabelEdit {
 }
 
 /**
- * Drives the "Issue & MR" data: listens to triggers (activation, branch switch, window focus,
+ * Drives the "Labels" section data: listens to triggers (activation, branch switch, window focus,
  * read-only polling), fetches the SyncState and publishes a view model for the UI.
  *
  * Nothing is ever written automatically. Writes happen only on explicit user actions: changing the
@@ -73,7 +73,7 @@ export class SyncEngine implements vscode.Disposable {
       }),
       eventBus.onDidChangeAuth(() => this.schedule('auth')),
       eventBus.onDidChangeConfig((e) => {
-        if (e.affectsConfiguration('gitPilot.statusSync.refreshInterval')) {
+        if (e.affectsConfiguration('gitPilot.labelSync.refreshInterval')) {
           this.restartPolling();
         }
         this.schedule('config');
@@ -93,7 +93,7 @@ export class SyncEngine implements vscode.Disposable {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
     }
-    const seconds = this.ctx.settings.statusSync.refreshInterval;
+    const seconds = this.ctx.settings.labelSync.refreshInterval;
     if (seconds > 0) {
       this.pollTimer = setInterval(() => {
         // Don't burn API quota while VS Code is in the background; focus triggers a catch-up refresh.
@@ -193,7 +193,7 @@ export class SyncEngine implements vscode.Disposable {
         return false;
       }
       const { provider, branch, issueNumber, repo } = resolved;
-      const { labelPrefix: prefix } = this.ctx.settings.statusSync;
+      const { labelPrefix: prefix } = this.ctx.settings.labelSync;
       const masks = this.ctx.settings.labels.groups;
       const notStatus = (l: string) => !isStatusLabel(l, prefix);
       try {
