@@ -9,6 +9,15 @@
 
 ## English
 
+### [1.0.4] — 2026-11-17
+
+- Security hardening:
+  - Isolated in-memory Personal Access Tokens in ECMAScript private fields (`#token`) and removed plaintext tokens from provider cache keys.
+  - Changed `gitPilot.instanceUrl` to `machine` scope, pinned `github.com` and `gitlab.com` to their canonical platforms, and stripped subpath overrides on cloud hosts.
+  - Restricted PAT input validation to visible ASCII characters (`0x21–0x7E`) to prevent invisible Unicode characters from breaking HTTP headers.
+  - Redacted embedded URL credentials (`user:token@`) and token query parameters across remote metadata and logs.
+  - Enforced the `10 MB` response size limit before reading HTTP error bodies, sanitized server error details, and rejected `?`/`#` in repository path segments.
+
 ### [1.0.3] — 2026-11-15
 
 - Changed the extension identifier (`name`) to `git-pilot-ext` for publishing on the VS Code Marketplace.
@@ -37,6 +46,15 @@
 <a id="ru"></a>
 
 ## Русский
+
+### [1.0.4] — 2026-11-17
+
+- Усиление безопасности и защиты секретов:
+  - Токены доступа в памяти изолированы в приватных полях ECMAScript (`#token`) и исключены из строковых ключей кэша провайдера.
+  - Настройка `gitPilot.instanceUrl` переведена на уровень пользователя (`scope: machine`), а для `github.com` и `gitlab.com` зафиксирована платформа и запрещено переопределение подпутей (`pathname`).
+  - Валидация ввода токена ограничена печатными ASCII-символами (`0x21–0x7E`), чтобы исключить попадание невидимых Unicode-символов в HTTP-заголовки.
+  - Добавлено маскирование учётных данных (`user:token@`) и токен-параметров во всех URL перед сохранением метаданных remote и записью в лог.
+  - Проверка лимита размера ответа (`10 МБ`) теперь выполняется до чтения тела HTTP-ошибок, текст ошибок сервера очищается от управляющих символов, а в сегментах пути репозитория запрещены `?` и `#`.
 
 ### [1.0.3] — 2026-11-15
 

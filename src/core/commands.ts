@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { SecretsManager } from './config/secrets';
 import { extractIssueNumber } from './git/gitService';
 import { errorMessage } from './logger';
-import { detectPlatform, type ProviderTarget } from './providers/providerManager';
+import { detectPlatform, fixedCloudPlatform, type ProviderTarget } from './providers/providerManager';
 import type { PilotContext, Platform } from './types';
 import { TreeNode } from './ui/sectionView';
 
@@ -65,7 +65,10 @@ async function resolveTokenTarget(ctx: PilotContext): Promise<ProviderTarget | u
     ignoreFocusOut: true,
     validateInput: (v) => {
       try {
-        new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+        const parsed = new URL(/^https?:\/\//i.test(v) ? v : `https://${v}`);
+        if (parsed.username || parsed.password) {
+          return 'Enter the instance URL without credentials (user:password@)';
+        }
         return null;
       } catch {
         return 'Enter a valid URL, e.g. https://gitlab.company.com';
@@ -78,7 +81,7 @@ async function resolveTokenTarget(ctx: PilotContext): Promise<ProviderTarget | u
   const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
   const setting = ctx.settings.provider;
   return {
-    platform: setting === 'auto' ? detectPlatform(url.hostname) : setting,
+    platform: fixedCloudPlatform(url.hostname) ?? (setting === 'auto' ? detectPlatform(url.hostname) : setting),
     host: SecretsManager.normalizeHost(url.host),
     webBaseUrl: `${url.protocol}//${url.host}`,
     projectPath: '',
@@ -147,7 +150,8 @@ async function openInBrowser(ctx: PilotContext): Promise<void> {
   }
 
   const { provider, repo } = res;
-  const projectUrl = `${provider.webBaseUrl}/${provider.projectPath}`;
+  const encodedPath = provider.projectPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  const projectUrl = `${provider.webBaseUrl}/${encodedPath}`;
   const items: Array<vscode.QuickPickItem & { url: string }> = [];
   const issueNumber = extractIssueNumber(repo.branch, ctx.settings.branchIssueRegex);
 

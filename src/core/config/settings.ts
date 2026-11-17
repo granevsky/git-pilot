@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { EventBus } from '../eventBus';
+import { redactUrl } from '../format';
 import type { Logger } from '../logger';
 
 export const CONFIG_SECTION = 'gitPilot';
@@ -69,9 +70,18 @@ export class SettingsManager implements vscode.Disposable {
     const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
     try {
       const url = new URL(withScheme);
-      return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, '');
+      if (url.username || url.password) {
+        this.logger.warn(`Ignoring gitPilot.instanceUrl with embedded credentials: "${redactUrl(raw)}"`);
+        return null;
+      }
+      // Cloud hosts never live under a subpath: ignore any pathname so workspace settings cannot
+      // redirect where API requests go on github.com / gitlab.com while reusing the host's token.
+      const host = url.hostname.toLowerCase();
+      const isCloud = host === 'github.com' || host === 'www.github.com' || host === 'api.github.com' || host === 'gitlab.com';
+      const pathname = isCloud ? '' : url.pathname;
+      return `${url.protocol}//${url.host}${pathname}`.replace(/\/+$/, '');
     } catch {
-      this.logger.warn(`Ignoring invalid gitPilot.instanceUrl: "${raw}"`);
+      this.logger.warn(`Ignoring invalid gitPilot.instanceUrl: "${redactUrl(raw)}"`);
       return null;
     }
   }

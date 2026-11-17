@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { SecretsManager } from '../config/secrets';
 import type { SettingsManager } from '../config/settings';
 import type { EventBus } from '../eventBus';
+import { redactUrl } from '../format';
 import type { GitService } from '../git/gitService';
 import type { Logger } from '../logger';
 import type { GitPlatformProvider, Platform, RepoContext } from '../types';
@@ -24,12 +25,28 @@ export type ProviderResolution =
   | { status: 'unknownPlatform'; repo: RepoContext; target: ProviderTarget }
   | { status: 'missingToken'; repo: RepoContext; target: ProviderTarget & { platform: Platform } };
 
-export function detectPlatform(hostname: string): Platform | null {
+/** Canonical cloud hosts whose platform cannot be overridden by workspace settings. */
+export function fixedCloudPlatform(hostname: string): Platform | null {
   const host = hostname.toLowerCase();
-  if (host === 'github.com' || host.endsWith('.github.com') || /(^|[.-])github([.-]|$)/.test(host)) {
+  if (host === 'github.com' || host === 'www.github.com' || host === 'api.github.com') {
     return 'github';
   }
-  if (host === 'gitlab.com' || /(^|[.-])gitlab([.-]|$)/.test(host)) {
+  if (host === 'gitlab.com') {
+    return 'gitlab';
+  }
+  return null;
+}
+
+export function detectPlatform(hostname: string): Platform | null {
+  const fixed = fixedCloudPlatform(hostname);
+  if (fixed) {
+    return fixed;
+  }
+  const host = hostname.toLowerCase();
+  if (host.endsWith('.github.com') || /(^|[.-])github([.-]|$)/.test(host)) {
+    return 'github';
+  }
+  if (/(^|[.-])gitlab([.-]|$)/.test(host)) {
     return 'gitlab';
   }
   return null;
@@ -72,9 +89,14 @@ export class ProviderManager implements vscode.Disposable {
       }
     }
 
-    const host = SecretsManager.normalizeHost(new URL(webBaseUrl).host);
+    const url = new URL(webBaseUrl);
+    const host = SecretsManager.normalizeHost(url.host);
     const setting = this.settings.provider;
-    const platform = setting === 'auto' ? detectPlatform(new URL(webBaseUrl).hostname) ?? detectPlatform(remote.hostname) : setting;
+    // Pin known cloud hosts so a workspace `gitPilot.provider` cannot route e.g. the github.com
+    // token through GitLabProvider (to https://github.com/api/v4 instead of api.github.com).
+    const platform =
+      fixedCloudPlatform(url.hostname) ??
+      (setting === 'auto' ? detectPlatform(url.hostname) ?? detectPlatform(remote.hostname) : setting);
     return { platform, host, webBaseUrl, projectPath };
   }
 
@@ -94,7 +116,7 @@ export class ProviderManager implements vscode.Disposable {
       target = this.describeTarget(repo);
     } catch (err) {
       // Defensive: a remote/instanceUrl that yields no valid URL must not break every caller.
-      this.logger.warn(`Cannot derive the platform URL for ${repo.remote?.url ?? '(no remote)'}: ${String(err)}`);
+      this.logger.warn(`Cannot derive the platform URL for ${redactUrl(repo.remote?.url ?? '(no remote)')}: ${String(err)}`);
       target = null;
     }
     if (!target) {
@@ -111,7 +133,8 @@ export class ProviderManager implements vscode.Disposable {
       return { status: 'missingToken', repo, target: typedTarget };
     }
 
-    const key = [platform, target.webBaseUrl, target.projectPath, token].join('|');
+    // Do not include the plaintext token in the cache key (`authChanged` invalidates `cached`).
+    const key = [platform, target.webBaseUrl, target.projectPath].join('|');
     if (this.cached?.key !== key) {
       const opts = {
         host: target.host,

@@ -2,7 +2,7 @@
   "name": "git-pilot-ext",
   "displayName": "Git Pilot",
   "description": "Manage the current branch's GitLab or GitHub Issue, MR/PR labels, and status sync right from VS Code.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "publisher": "Granevsky",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -356,7 +356,7 @@
             "type": "string",
             "default": "",
             "markdownDescription": "Optional base URL override for self-hosted GitLab or GitHub Enterprise, e.g. `https://gitlab.company.com`. Leave empty to derive it from the `origin` remote.",
-            "scope": "machine-overridable"
+            "scope": "machine"
           },
           "gitPilot.branchIssueRegex": {
             "type": "string",

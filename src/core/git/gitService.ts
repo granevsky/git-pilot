@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { EventBus } from '../eventBus';
+import { redactUrl } from '../format';
 import type { Logger } from '../logger';
 import type { RemoteInfo, RepoContext } from '../types';
 import type { GitAPI, GitExtension, Remote, Repository } from './gitApi';
@@ -66,14 +67,14 @@ export function parseRemoteUrl(rawUrl: string, remoteName = 'origin'): RemoteInf
     .replace(/\.git$/i, '');
   const segments = projectPath.split('/').filter(Boolean);
   // Dot segments would be resolved by URL parsing once the path enters an API URL (e.g. owner ".."
-  // escaping `/repos/`); control characters have no place in a project path either.
-  if (segments.length < 2 || segments.some((s) => s === '.' || s === '..' || /[\u0000-\u001f\u007f\\]/.test(s))) {
+  // escaping `/repos/`); control characters, `?` and `#` have no place in a project path either.
+  if (segments.length < 2 || segments.some((s) => s === '.' || s === '..' || /[\u0000-\u001f\u007f\\?#]/.test(s))) {
     return null;
   }
 
   return {
     name: remoteName,
-    url,
+    url: redactUrl(url),
     hostname,
     projectPath: segments.join('/'),
     owner: segments.slice(0, -1).join('/'),
