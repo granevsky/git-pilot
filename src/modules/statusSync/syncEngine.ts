@@ -20,7 +20,7 @@ export interface LabelEdit {
 }
 
 /**
- * Drives the "Issue & MR" data: listens to triggers (activation, branch switch, window focus,
+ * Drives the "Labels" section data: listens to triggers (activation, branch switch, window focus,
  * read-only polling), fetches the SyncState and publishes a view model for the UI.
  *
  * Nothing is ever written automatically. Writes happen only on explicit user actions: changing the

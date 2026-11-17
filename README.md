@@ -54,12 +54,12 @@ Instead of switching to the browser to move a task across the board or fix misma
 
 ### Sidebar & Status Bar
 
-#### Issue & MR section
+#### Labels section
 
-Shows the Issue for the current branch, its open MRs/PRs, and their labels:
+Shows the Issue for the current branch, its open MRs/PRs, their labels, and the whole label catalog of the project:
 
 ```text
-ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
+LABELS · #3                                         [🏷] [+] [⇅] [⟳]
  ▸ ⚠ Labels differ   from MR !5 · 14:30:00               [⇅] [🏷]
  ▾ Issue #3   Add a sidebar                              [+] [↗]
      status: doing   status                              [🏷]
@@ -68,7 +68,7 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
  ▾ MR !5   Draft: sidebar                                [+] [↗]
      status: doing   status                              [🏷]
      app:api         not on Issue                    [→] [⇄] [✕]
- ▸ Statuses (4)
+ ▸ All labels (12)
 ```
 
 - **Summary row** — shows the current status when everything matches (*Status: doing — in sync*; click to pick another status). When labels differ between the Issue and the MR/PR, it turns into a collapsible warning showing the exact `+`/`−` diff per item; clicking it opens the **Sync from MR/PR…** confirmation dialog.
@@ -79,15 +79,14 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
   - `⇄` **Replace Label…** — swaps a grouped label (e.g. `app:web`) for another label from the same group (`app:api`).
   - `✕` **Remove Label** — detaches the label from that Issue or MR/PR (with an **Undo** button in the notification).
   - `↗` **Open in Browser** — opens the Issue or MR/PR in your browser.
-- **Statuses** — lists all status labels available in the project; click `✓` on any item to apply it.
+- **All labels** — a collapsed node with the catalog of all labels in the project (on GitLab, including labels inherited from parent groups). It is loaded the first time you expand it, and reloaded by the **Refresh** button.
 
-#### Labels section
-
-A lazy-loaded catalog of all labels in the project (on GitLab, including labels inherited from parent groups).
+##### All labels
 
 - Labels are grouped automatically by the prefix before `:` or `::` (`status:*`, `app:*`), or by custom glob masks in `gitPilot.labels.groups`. Labels without a prefix go into **Other**.
 - Labels currently applied to the branch's Issue or MRs/PRs are marked with `✓` and show where they are used (*Issue · MR !5*).
-- Hover over any label to `+` add it, `✕` remove it (with **Undo**), apply a status, or copy the label name from its context menu.
+- Hover over any label to `+` add it, `✕` remove it (with **Undo**), apply a status with `✓`, or copy the label name from its context menu.
+- Status labels live in the `status:*` group — click `✓` on one to apply it to the Issue and all open MRs/PRs.
 
 #### Status bar
 
@@ -159,11 +158,9 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. `"auto"` detects the platform from the remote hostname. Set explicitly for custom self-hosted domains. |
 | `gitPilot.instanceUrl` | `""` | User-level setting. Base URL override for self-hosted GitLab or GitHub Enterprise (e.g. `https://gitlab.company.com`, subpath instances like `https://host/gitlab` are supported). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Regular expression used to extract the issue number from the branch name (uses the **first capturing group**). |
-| `gitPilot.statusSync.showSection` | `true` | Show the **Issue & MR** section in the sidebar (always shown if **Labels** is disabled). |
 | `gitPilot.statusSync.showStatusBar` | `true` | Show the Issue / MR status item in the VS Code status bar. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | Prefix for status labels (`"status:"` or `"status::"`). Both `:` and `::` variants are matched when replacing a status. |
 | `gitPilot.statusSync.refreshInterval` | `120` | Background read-only refresh interval in seconds while the window is focused (`0` disables polling; minimum `10`). |
-| `gitPilot.labels.enabled` | `true` | Show the **Labels** section in the sidebar. |
 | `gitPilot.labels.groups` | `[]` | Glob masks for grouping labels in display order, e.g. `["status:*", "app:*"]` (`*` matches any characters, `?` matches one, `:` also matches `::`). Leave empty to group automatically by prefix before `:` / `::`. |
 | `gitPilot.allowInsecureHttp` | `false` | User-level setting only. Allows sending API requests over plain `http://` when `instanceUrl` explicitly uses `http://`. |
 
@@ -178,9 +175,8 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
 | Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Issue & MR: Sync Labels from MR / PR… | `gitPilot.statusSync.syncFromMr` |
-| Git Pilot: Issue & MR: Refresh | `gitPilot.statusSync.refresh` |
-| Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
+| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.statusSync.syncFromMr` |
+| Git Pilot: Labels: Refresh | `gitPilot.statusSync.refresh` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Logs are written to **Output → Git Pilot**. Switch the log level to **Trace** to inspect API requests (tokens are never logged).
@@ -251,12 +247,12 @@ Because a cloned repository controls its own remote URLs, branch names, and `.vs
 
 ### Боковая панель и статус-бар
 
-#### Раздел Issue & MR
+#### Раздел Labels
 
-Показывает задачу текущей ветки, её открытые MR/PR и список меток на каждом элементе:
+Показывает задачу текущей ветки, её открытые MR/PR, список меток на каждом элементе и весь каталог меток проекта:
 
 ```text
-ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
+LABELS · #3                                         [🏷] [+] [⇅] [⟳]
  ▸ ⚠ Labels differ   from MR !5 · 14:30:00               [⇅] [🏷]
  ▾ Issue #3   Add a sidebar                              [+] [↗]
      status: doing   status                              [🏷]
@@ -265,7 +261,7 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
  ▾ MR !5   Draft: sidebar                                [+] [↗]
      status: doing   status                              [🏷]
      app:api         not on Issue                    [→] [⇄] [✕]
- ▸ Statuses (4)
+ ▸ All labels (12)
 ```
 
 - **Строка-сводка** — когда метки совпадают, показывает текущий статус (*Status: doing — in sync*), а по клику открывает выбор нового статуса. Если метки задачи и MR/PR отличаются, сводка превращается в раскрывающийся список с точным перечнем отличий (`+`/`−`), а клик по ней открывает окно подтверждения синхронизации **Sync from MR/PR…**.
@@ -276,15 +272,14 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
   - `⇄` **Replace Label…** — заменяет групповую метку (например, `app:web`) на другую из той же группы (`app:api`).
   - `✕` **Remove Label** — снимает метку с выбранной задачи или MR/PR (в уведомлении появляется кнопка **Undo** для отмены).
   - `↗` **Open in Browser** — открывает задачу или MR/PR в браузере.
-- **Statuses** — сворачиваемый список всех статусных меток проекта; кнопка `✓` на строке сразу применяет выбранный статус.
+- **All labels** — свёрнутый узел с каталогом всех меток проекта (в GitLab — включая метки родительских групп). Загружается при первом раскрытии и обновляется кнопкой **Refresh**.
 
-#### Раздел Labels
-
-Каталог всех меток проекта (в GitLab — включая метки родительских групп), который подгружается только когда раздел открыт.
+##### All labels
 
 - Метки автоматически группируются по префиксу до `:` или `::` (`status:*`, `app:*`) либо по вашим маскам из `gitPilot.labels.groups`. Метки без префикса попадают в группу **Other**.
 - Метки, которые уже стоят на текущей задаче или её MR/PR, отмечаются галочкой `✓` с подписью, где именно они применены (*Issue · MR !5*).
-- Кнопками на строке можно добавить (`+`) или снять (`✕`) метку, применить статус или скопировать название метки через контекстное меню.
+- Кнопками на строке можно добавить (`+`) или снять (`✕`) метку, применить статус (`✓`) или скопировать название метки через контекстное меню.
+- Статусные метки находятся в группе `status:*` — кнопка `✓` применяет статус к задаче и всем открытым MR/PR.
 
 #### Строка состояния (Status Bar)
 
@@ -356,11 +351,9 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. В режиме `"auto"` платформа определяется по домену remote. Для корпоративных серверов с нестандартным доменом укажите явно. |
 | `gitPilot.instanceUrl` | `""` | Только на уровне настроек пользователя. Базовый URL для собственного инстанса GitLab или GitHub Enterprise (например, `https://gitlab.company.com`; поддерживаются и подпути вроде `https://host/gitlab`). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Регулярное выражение для извлечения номера задачи из имени ветки (используется **первая группа захвата**). |
-| `gitPilot.statusSync.showSection` | `true` | Показывать раздел **Issue & MR** в боковой панели (если раздел **Labels** выключен, **Issue & MR** остаётся видимым всегда). |
 | `gitPilot.statusSync.showStatusBar` | `true` | Показывать индикатор задачи и MR/PR в строке состояния VS Code. |
 | `gitPilot.statusSync.labelPrefix` | `"status:"` | Префикс статусных меток (`"status:"` или `"status::"`). При замене статуса учитываются оба варианта (`:` и `::`). |
 | `gitPilot.statusSync.refreshInterval` | `120` | Интервал фонового обновления данных в секундах, пока окно VS Code активно (`0` — выключить автообновление; минимум — `10`). |
-| `gitPilot.labels.enabled` | `true` | Показывать раздел **Labels** (каталог меток проекта) в боковой панели. |
 | `gitPilot.labels.groups` | `[]` | Маски группировки меток в нужном порядке, например `["status:*", "app:*"]` (`*` — любые символы, `?` — один символ, `:` также совпадает с `::`). Если массив пуст, метки группируются автоматически по префиксу до `:` / `::`. |
 | `gitPilot.allowInsecureHttp` | `false` | Только на уровне настроек пользователя. Разрешает отправку запросов по незашифрованному `http://`, если в `instanceUrl` явно указан `http://`. |
 
@@ -375,9 +368,8 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
 | Git Pilot: Set Personal Access Token | `gitPilot.setToken` |
 | Git Pilot: Change Status… | `gitPilot.statusSync.selectStatus` |
 | Git Pilot: Add Labels… | `gitPilot.statusSync.addLabel` |
-| Git Pilot: Issue & MR: Sync Labels from MR / PR… | `gitPilot.statusSync.syncFromMr` |
-| Git Pilot: Issue & MR: Refresh | `gitPilot.statusSync.refresh` |
-| Git Pilot: Labels: Refresh | `gitPilot.labels.refresh` |
+| Git Pilot: Labels: Sync from MR / PR… | `gitPilot.statusSync.syncFromMr` |
+| Git Pilot: Labels: Refresh | `gitPilot.statusSync.refresh` |
 | Git Pilot: Open Issue / MR in Browser | `gitPilot.openInBrowser` |
 
 Логи работы пишутся в панель **Output → Git Pilot**. Для отладки сетевых запросов переключите уровень логирования на **Trace** (токены в лог никогда не выводятся).

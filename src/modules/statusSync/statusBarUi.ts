@@ -36,6 +36,7 @@ export const COMMANDS = {
   removeLabel: 'gitPilot.statusSync.removeLabel',
   replaceLabel: 'gitPilot.statusSync.replaceLabel',
   copyLabel: 'gitPilot.statusSync.copyLabelToOthers',
+  copyName: 'gitPilot.statusSync.copyLabelName',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -47,7 +48,7 @@ export class StatusBarUi implements vscode.Disposable {
 
   constructor(private readonly getPrefix: () => string) {
     this.item = vscode.window.createStatusBarItem('gitPilot.statusSync', vscode.StatusBarAlignment.Left, 50);
-    this.item.name = 'Git Pilot: Issue & MR';
+    this.item.name = 'Git Pilot: Labels';
   }
 
   render(view: SyncViewState): void {

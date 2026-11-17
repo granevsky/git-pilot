@@ -9,6 +9,13 @@
 
 ## English
 
+### [1.1.0] — 2026-11-17
+
+- Merged the **Issue & MR** and **Labels** sidebar sections into one section named **Labels**:
+  - The former **Statuses** node is now **All labels** and holds the project label catalog (groups, applied marks, add / remove / apply status actions). It is loaded lazily on first expansion and is also available when the branch has no issue.
+  - Removed the separate catalog section, the `gitPilot.labels.enabled` and `gitPilot.statusSync.showSection` settings, and the `gitPilot.labels.refresh` / `gitPilot.labels.copyName` commands (use `gitPilot.statusSync.refresh` / `gitPilot.statusSync.copyLabelName`).
+  - Renamed the Command Palette entries to **Labels: Sync from MR / PR…** and **Labels: Refresh**.
+
 ### [1.0.4] — 2026-11-17
 
 - Security hardening:
@@ -46,6 +53,13 @@
 <a id="ru"></a>
 
 ## Русский
+
+### [1.1.0] — 2026-11-17
+
+- Разделы **Issue & MR** и **Labels** объединены в один раздел **Labels**:
+  - Бывший узел **Statuses** теперь называется **All labels** и содержит каталог меток проекта (группы, отметки применённых меток, действия «добавить / снять / применить статус»). Каталог загружается при первом раскрытии и доступен, даже если у ветки нет задачи.
+  - Удалены отдельный раздел каталога, настройки `gitPilot.labels.enabled` и `gitPilot.statusSync.showSection`, а также команды `gitPilot.labels.refresh` / `gitPilot.labels.copyName` (используйте `gitPilot.statusSync.refresh` / `gitPilot.statusSync.copyLabelName`).
+  - Команды в палитре переименованы: **Labels: Sync from MR / PR…** и **Labels: Refresh**.
 
 ### [1.0.4] — 2026-11-17
 

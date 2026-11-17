@@ -6,6 +6,7 @@ import { errorMessage } from '../../core/logger';
 import { isStatusLabel } from '../../core/providers/baseProvider';
 import type { PilotContext, PilotModule, ProjectLabel, SyncState } from '../../core/types';
 import { TreeNode } from '../../core/ui/sectionView';
+import { ALL_LABELS_ID, type CatalogData } from './catalogTree';
 import { pickLabels, pickTargets } from './labelPicker';
 import { COMMANDS, StatusBarUi, type SyncViewState } from './statusBarUi';
 import { StatusTree } from './statusTree';
@@ -14,16 +15,19 @@ import { buildSyncPlan, describeChanges, entityKeys, entityName, findConflict, f
 
 /** Settings whose change only affects presentation of the section / status bar. */
 const RENDER_SETTINGS = ['gitPilot.statusSync.showStatusBar', 'gitPilot.statusSync.labelPrefix', 'gitPilot.labels.groups'];
+/** Settings that change which project is resolved, so the cached label catalog is stale. */
+const RELOAD_SETTINGS = ['gitPilot.provider', 'gitPilot.instanceUrl', 'gitPilot.allowInsecureHttp'];
 
 /** Max change lines per option in the confirmation dialog. */
 const MAX_DETAIL_LINES = 12;
 
 /**
- * Feature Module #1 — the "Issue & MR" sidebar section and the status bar item.
+ * Feature Module #1 — the "Labels" sidebar section and the status bar item.
  *
  * Shows the Issue of the current branch and its open Merge Requests (GitLab) / Pull Requests
  * (GitHub) of the same project, lets the user change the status and add / remove / replace labels,
  * and — only after confirmation — syncs the Issue's labels from the MR/PR (the source of truth).
+ * The "All labels" node lists the project's label catalog (loaded lazily, on first expansion).
  * Nothing is written automatically.
  */
 export class StatusSyncModule implements PilotModule {
@@ -35,13 +39,23 @@ export class StatusSyncModule implements PilotModule {
   private tree: StatusTree | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
+  // Label catalog behind the "All labels" node.
+  private catalog: CatalogData | null = null;
+  /** `true` while the "All labels" node is expanded: only then is the catalog kept fresh. */
+  private catalogWanted = false;
+  private catalogRun: Promise<void> | null = null;
+  private catalogRerun = false;
+
   activate(ctx: PilotContext): void {
     this.ctx = ctx;
     const ui = (this.ui = new StatusBarUi(() => ctx.settings.statusSync.labelPrefix));
-    const tree = (this.tree = new StatusTree(() => ({
-      prefix: ctx.settings.statusSync.labelPrefix,
-      masks: ctx.settings.labels.groups,
-    })));
+    const tree = (this.tree = new StatusTree(
+      () => ({
+        prefix: ctx.settings.statusSync.labelPrefix,
+        masks: ctx.settings.labels.groups,
+      }),
+      () => this.catalog,
+    ));
     const engine = (this.engine = new SyncEngine(ctx));
 
     this.disposables.push(
@@ -49,8 +63,13 @@ export class StatusSyncModule implements PilotModule {
       tree,
       engine,
       engine.onDidChangeView((view) => this.render(view)),
+      tree.view.onDidExpandElement((e) => this.onAllLabelsToggled(e.element, true)),
+      tree.view.onDidCollapseElement((e) => this.onAllLabelsToggled(e.element, false)),
+      ctx.eventBus.onDidChangeRepo(() => this.invalidateCatalog()),
+      ctx.eventBus.onDidChangeAuth(() => this.invalidateCatalog()),
       vscode.commands.registerCommand(COMMANDS.selectStatus, () => this.selectStatus()),
       vscode.commands.registerCommand(COMMANDS.refresh, () => this.refresh()),
+      vscode.commands.registerCommand(COMMANDS.copyName, (node: unknown) => this.copyLabelName(node)),
       vscode.commands.registerCommand(COMMANDS.syncFromMr, () => this.syncFromMr()),
       vscode.commands.registerCommand(COMMANDS.applyStatus, (node: unknown) => this.applyStatusFromNode(node)),
       vscode.commands.registerCommand(COMMANDS.addLabel, (node: unknown) => this.addLabel(node)),
@@ -58,7 +77,9 @@ export class StatusSyncModule implements PilotModule {
       vscode.commands.registerCommand(COMMANDS.replaceLabel, (node: unknown) => this.replaceLabel(node)),
       vscode.commands.registerCommand(COMMANDS.copyLabel, (node: unknown) => this.copyLabelToOthers(node)),
       ctx.eventBus.onDidChangeConfig((e) => {
-        if (RENDER_SETTINGS.some((s) => e.affectsConfiguration(s))) {
+        if (RELOAD_SETTINGS.some((s) => e.affectsConfiguration(s))) {
+          this.invalidateCatalog();
+        } else if (RENDER_SETTINGS.some((s) => e.affectsConfiguration(s))) {
           this.render(engine.currentView);
         }
       }),
@@ -77,7 +98,102 @@ export class StatusSyncModule implements PilotModule {
   // -------------------------------------------------------------------------
 
   private async refresh(): Promise<void> {
+    // The catalog is reloaded too: right away while "All labels" is open, otherwise on next expansion.
+    if (this.catalogWanted) {
+      void this.loadCatalog();
+    } else {
+      this.catalog = null;
+    }
     await this.engine?.requestSync('manual');
+  }
+
+  // -------------------------------------------------------------------------
+  // "All labels" catalog (lazy: loaded while the node is expanded)
+  // -------------------------------------------------------------------------
+
+  private onAllLabelsToggled(node: TreeNode, expanded: boolean): void {
+    if (node.item.id !== ALL_LABELS_ID) {
+      return;
+    }
+    this.catalogWanted = expanded;
+    if (expanded && !this.catalog) {
+      void this.loadCatalog();
+    }
+  }
+
+  /** Drops the cached catalog (project/auth changed); reloads at once if the node is open. */
+  private invalidateCatalog(): void {
+    this.catalog = null;
+    if (this.catalogRun) {
+      this.catalogRerun = true; // the in-flight result belongs to the old project
+    }
+    if (this.engine) {
+      this.render(this.engine.currentView);
+    }
+    if (this.catalogWanted) {
+      void this.loadCatalog();
+    }
+  }
+
+  /** One load at a time; a request arriving mid-flight triggers exactly one follow-up load. */
+  private loadCatalog(): Promise<void> {
+    if (this.catalogRun) {
+      this.catalogRerun = true;
+      return this.catalogRun;
+    }
+    this.catalogRun = (async () => {
+      do {
+        this.catalogRerun = false;
+        await this.fetchCatalog();
+      } while (this.catalogRerun && this.catalogWanted);
+    })().finally(() => {
+      this.catalogRun = null;
+    });
+    return this.catalogRun;
+  }
+
+  private async fetchCatalog(): Promise<void> {
+    const ctx = this.ctx;
+    const tree = this.tree;
+    if (!ctx || !tree) {
+      return;
+    }
+    let result: CatalogData;
+    try {
+      const res = await ctx.providerManager.resolve();
+      if (res.status !== 'ready') {
+        result = { projectPath: '', labels: null, error: 'The project is not available yet (check the repository remote and API token).' };
+      } else {
+        const provider = res.provider;
+        const getLabels = provider.getLabels?.bind(provider);
+        let labels: ProjectLabel[] | null = null;
+        let error: string | null = null;
+        try {
+          labels = getLabels ? await tree.withProgress(() => getLabels()) : null;
+        } catch (err) {
+          error = errorMessage(err);
+          ctx.logger.warn(`Loading project labels failed: ${error}`);
+        }
+        result = { projectPath: provider.projectPath, labels, error };
+      }
+    } catch (err) {
+      ctx.logger.error(`Loading project labels failed: ${errorMessage(err)}`);
+      result = { projectPath: '', labels: null, error: errorMessage(err) };
+    }
+    if (this.catalogRerun || !this.tree) {
+      return; // invalidated mid-flight (or disposed): this result is stale
+    }
+    this.catalog = result;
+    if (this.engine) {
+      this.render(this.engine.currentView);
+    }
+  }
+
+  private async copyLabelName(node: unknown): Promise<void> {
+    if (node instanceof TreeNode && node.value) {
+      await vscode.env.clipboard.writeText(node.value);
+      vscode.window.setStatusBarMessage(`$(copy) Copied "${node.value}"`, 3000);
+    }
   }
 
   /**
@@ -143,7 +259,7 @@ export class StatusSyncModule implements PilotModule {
   }
 
   /**
-   * Sidebar action (Issue & MR statuses, or a status label in the Labels section). Only nodes
+   * Sidebar action (a status label in "All labels"). Only nodes
    * created by Git Pilot that carry a status label are applied; anything else opens the picker.
    */
   private async applyStatusFromNode(node: unknown): Promise<void> {
@@ -361,7 +477,7 @@ export class StatusSyncModule implements PilotModule {
   // Helpers
   // -------------------------------------------------------------------------
 
-  /** A non-status label node of the Issue & MR section that belongs to a known entity. */
+  /** A non-status label node of the Labels section that belongs to a known entity. */
   private labelTarget(arg: unknown): { entity: string; label: string; where: string } | null {
     const state = this.engine?.currentState;
     const prefix = this.ctx?.settings.statusSync.labelPrefix ?? '';

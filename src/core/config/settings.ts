@@ -14,8 +14,6 @@ const MAX_LABEL_GROUPS = 50;
 const MAX_LABEL_MASK_LENGTH = 100;
 
 export interface StatusSyncSettings {
-  /** Show the "Issue & MR" sidebar section (forced on in package.json when no other section is enabled). */
-  showSection: boolean;
   /** Show the status bar item. */
   showStatusBar: boolean;
   labelPrefix: string;
@@ -24,7 +22,6 @@ export interface StatusSyncSettings {
 }
 
 export interface LabelsSettings {
-  enabled: boolean;
   /** Grouping masks such as `status:*`; empty = group automatically by the prefix before `:`/`::`. */
   groups: string[];
 }
@@ -126,7 +123,6 @@ export class SettingsManager implements vscode.Disposable {
     const cfg = this.config;
     const interval = Number(cfg.get<number>('statusSync.refreshInterval', 120));
     return {
-      showSection: cfg.get<boolean>('statusSync.showSection', true),
       showStatusBar: cfg.get<boolean>('statusSync.showStatusBar', true),
       labelPrefix: cfg.get<string>('statusSync.labelPrefix', DEFAULT_LABEL_PREFIX).trim() || DEFAULT_LABEL_PREFIX,
       refreshInterval: Number.isFinite(interval) && interval > 0 ? Math.max(10, Math.floor(interval)) : 0,
@@ -141,10 +137,7 @@ export class SettingsManager implements vscode.Disposable {
       .map((g) => g.trim())
       .filter((g) => g.length > 0 && g.length <= MAX_LABEL_MASK_LENGTH)
       .slice(0, MAX_LABEL_GROUPS);
-    return {
-      enabled: cfg.get<boolean>('labels.enabled', true),
-      groups,
-    };
+    return { groups };
   }
 
   dispose(): void {

@@ -67,8 +67,7 @@ src/
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
     ├── index.ts               Module list (add new modules here)
-    ├── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
-    └── labels/                index.ts · labelsTree.ts
+    └── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · catalogTree.ts · labelPicker.ts
 ```
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
@@ -90,7 +89,7 @@ export class DailyIssuesModule implements PilotModule {
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new StatusSyncModule(), () => new DailyIssuesModule()];
 ```
 
 Modules don't call each other. They communicate only through the `EventBus` and the shared core services in `PilotContext`.
@@ -103,7 +102,7 @@ To add a sidebar section, declare a view in `contributes.views.gitPilot` of `pac
 
 ### Internal commands
 
-Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. They act only on tree items created by Git Pilot.
+Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.statusSync.copyLabelName`. They act only on tree items created by Git Pilot.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -177,8 +176,7 @@ src/
 │       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
 └── modules/
     ├── index.ts               Список модулей (новые модули добавляются здесь)
-    ├── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · labelPicker.ts
-    └── labels/                index.ts · labelsTree.ts
+    └── statusSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · statusTree.ts · catalogTree.ts · labelPicker.ts
 ```
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
@@ -200,7 +198,7 @@ export class DailyIssuesModule implements PilotModule {
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new StatusSyncModule(), () => new DailyIssuesModule()];
 ```
 
 Модули не вызывают друг друга напрямую. Они общаются только через `EventBus` и общие сервисы ядра из `PilotContext`.
@@ -213,7 +211,7 @@ export const MODULES = [() => new StatusSyncModule(), () => new LabelsModule(), 
 
 ### Служебные команды
 
-Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.labels.copyName`. Они работают только с элементами дерева, созданными самим Git Pilot.
+Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.statusSync.applyStatus`, `gitPilot.statusSync.removeLabel`, `gitPilot.statusSync.replaceLabel`, `gitPilot.statusSync.copyLabelToOthers`, `gitPilot.statusSync.copyLabelName`. Они работают только с элементами дерева, созданными самим Git Pilot.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 

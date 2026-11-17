@@ -44,10 +44,10 @@ function logStartup(logger: Logger, context: vscode.ExtensionContext, settings: 
       `allowInsecureHttp=${settings.allowInsecureHttp}, branchIssueRegex=${settings.branchIssueRegexSource}`,
   );
   logger.info(
-    `Issue & MR: showSection=${sync.showSection}, showStatusBar=${sync.showStatusBar}, labelPrefix="${sync.labelPrefix}", ` +
-      `refreshInterval=${sync.refreshInterval ? `${sync.refreshInterval}s` : 'off'} (labels are written only on user action)`,
+    `Labels: showStatusBar=${sync.showStatusBar}, labelPrefix="${sync.labelPrefix}", ` +
+      `refreshInterval=${sync.refreshInterval ? `${sync.refreshInterval}s` : 'off'} (labels are written only on user action), ` +
+      `groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`,
   );
-  logger.info(`Labels: enabled=${labels.enabled}, groups=${labels.groups.length ? labels.groups.join(', ') : '(auto by prefix)'}`);
 }
 
 /**
