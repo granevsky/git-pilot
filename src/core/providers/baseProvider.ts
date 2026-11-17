@@ -1,4 +1,5 @@
 import type { SettingsManager } from '../config/settings';
+import { oneLine, redactUrl } from '../format';
 import type { Logger } from '../logger';
 import type { EntityKind, EntityRef, GitPlatformProvider, Platform, ProjectLabel, SyncState, User } from '../types';
 
@@ -146,7 +147,7 @@ export abstract class BaseProvider implements GitPlatformProvider {
   readonly host: string;
   readonly webBaseUrl: string;
   readonly projectPath: string;
-  protected readonly token: string;
+  readonly #token: string;
   protected readonly settings: SettingsManager;
   protected readonly logger: Logger;
 
@@ -154,9 +155,14 @@ export abstract class BaseProvider implements GitPlatformProvider {
     this.host = opts.host;
     this.webBaseUrl = opts.webBaseUrl.replace(/\/+$/, '');
     this.projectPath = opts.projectPath;
-    this.token = opts.token;
+    this.#token = opts.token;
     this.settings = opts.settings;
     this.logger = opts.logger;
+  }
+
+  /** Non-enumerable access to the PAT (kept in an ECMAScript private slot so object dumps/serialization never expose it). */
+  protected get token(): string {
+    return this.#token;
   }
 
   // ----- abstract platform surface -----------------------------------------
@@ -362,7 +368,7 @@ export abstract class BaseProvider implements GitPlatformProvider {
         const cause = err instanceof Error && err.cause instanceof Error ? `: ${err.cause.message}` : '';
         throw new ProviderError(`Cannot reach ${this.host}${cause}`, 'network');
       }
-      this.logger.trace(`${method} ${redact(current.href)} -> ${res.status} (${Date.now() - started}ms)`);
+      this.logger.trace(`${method} ${redactUrl(current.href)} -> ${res.status} (${Date.now() - started}ms)`);
 
       const location = res.headers.get('location');
       if (res.status < 300 || res.status >= 400 || !location) {
@@ -379,16 +385,16 @@ export abstract class BaseProvider implements GitPlatformProvider {
       current = new URL(location, current); // validated by assertSafeUrl on the next iteration
     }
 
+    const declared = Number(res.headers.get('content-length') ?? 0);
+    if (declared > MAX_RESPONSE_BYTES) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new ProviderError(`Response from ${this.host} is too large`, 'invalidResponse', res.status);
+    }
     if (!res.ok) {
       throw await this.toError(res);
     }
     if (res.status === 204) {
       return { data: undefined as T, headers: res.headers, status: res.status };
-    }
-    const declared = Number(res.headers.get('content-length') ?? 0);
-    if (declared > MAX_RESPONSE_BYTES) {
-      await res.body?.cancel().catch(() => undefined);
-      throw new ProviderError(`Response from ${this.host} is too large`, 'invalidResponse', res.status);
     }
     const text = await res.text();
     if (text.length > MAX_RESPONSE_BYTES) {
@@ -423,9 +429,12 @@ export abstract class BaseProvider implements GitPlatformProvider {
     let detail = '';
     try {
       const text = await res.text();
-      const json = JSON.parse(text) as { message?: unknown; error?: unknown; error_description?: unknown };
-      const msg = json.message ?? json.error_description ?? json.error;
-      detail = typeof msg === 'string' ? msg : msg ? JSON.stringify(msg) : '';
+      if (text.length <= MAX_RESPONSE_BYTES) {
+        const json = JSON.parse(text) as { message?: unknown; error?: unknown; error_description?: unknown };
+        const msg = json.message ?? json.error_description ?? json.error;
+        const raw = typeof msg === 'string' ? msg : msg ? JSON.stringify(msg) : '';
+        detail = raw ? oneLine(raw, 200) : '';
+      }
     } catch {
       // ignore unparsable bodies
     }
@@ -483,8 +492,4 @@ export function labelDiff(current: readonly string[], next: readonly string[]): 
 /** Parentheses (left unescaped by URL serialization) would break Markdown link syntax in tooltips. */
 function markdownSafeHref(href: string): string {
   return href.replace(/\(/g, '%28').replace(/\)/g, '%29');
-}
-
-function redact(url: string): string {
-  return url.replace(/([?&](?:private_token|access_token)=)[^&]+/gi, '$1***');
 }

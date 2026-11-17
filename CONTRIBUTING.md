@@ -53,7 +53,7 @@ src/
 │   ├── eventBus.ts            Typed events: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
 │   ├── logger.ts              "Git Pilot" log output channel
 │   ├── commands.ts            Core commands (setToken, openInBrowser, openItem)
-│   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping)
+│   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping, URL credential redaction)
 │   ├── labels.ts              Label groups (prefix / masks) and group exclusivity
 │   ├── ui/sectionView.ts      Sidebar section = TreeView over TreeNode roots
 │   ├── moduleRegistry.ts      Activates modules separately so one failing module can't break the others
@@ -163,7 +163,7 @@ src/
 │   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged, syncStateChanged
 │   ├── logger.ts              Канал вывода «Git Pilot»
 │   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem)
-│   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown)
+│   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown, маскирование секретов в URL)
 │   ├── labels.ts              Группы меток (префикс / маски) и их взаимоисключение
 │   ├── ui/sectionView.ts      Раздел боковой панели = TreeView над корнями TreeNode
 │   ├── moduleRegistry.ts      Запускает модули изолированно: сбой одного не ломает остальные

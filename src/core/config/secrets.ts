@@ -85,9 +85,11 @@ export class SecretsManager implements vscode.Disposable {
     input.password = true;
     input.ignoreFocusOut = true;
     input.placeholder = existing ? 'A token is already stored. Enter a new one, or submit empty to remove it.' : 'Paste your Personal Access Token';
-    input.prompt = `Required scope: ${scope}. Stored in the OS keychain and sent only to ${webBaseUrl}.`;
+    input.prompt = `Required scope: ${scope} (or fine-grained Issue & PR/MR access). Stored in the OS keychain and sent only to ${webBaseUrl}.`;
     input.onDidChangeValue((v) => {
-      input.validationMessage = /[\s\u0000-\u001f\u007f]/.test(v.trim()) ? 'A token cannot contain spaces or control characters.' : undefined;
+      const trimmed = v.trim();
+      input.validationMessage =
+        trimmed && !/^[\x21-\x7e]+$/.test(trimmed) ? 'A token cannot contain spaces, control or non-ASCII characters.' : undefined;
     });
     const openButton: vscode.QuickInputButton = {
       iconPath: new vscode.ThemeIcon('link-external'),
@@ -155,6 +157,14 @@ export class SecretsManager implements vscode.Disposable {
 }
 
 function tokenCreationUrl(platform: Platform | null, webBaseUrl: string): string | null {
+  try {
+    const parsed = new URL(webBaseUrl);
+    if ((parsed.protocol !== 'https:' && parsed.protocol !== 'http:') || parsed.username || parsed.password) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
   if (platform === 'github') {
     return `${webBaseUrl}/settings/tokens/new?scopes=repo&description=Git%20Pilot`;
   }

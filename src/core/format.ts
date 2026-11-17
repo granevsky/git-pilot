@@ -25,3 +25,10 @@ export function oneLine(text: string, maxLength = 200): string {
   const flat = text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
   return flat.length > maxLength ? `${flat.slice(0, maxLength - 1)}…` : flat;
 }
+
+/** Masks embedded credentials (`user:token@`) and token query parameters before a URL reaches logs. */
+export function redactUrl(url: string): string {
+  return url
+    .replace(/(\/\/)[^/@\s]+@/g, '$1***@')
+    .replace(/([?&](?:private_token|access_token|token)=)[^&\s#]+/gi, '$1***');
+}

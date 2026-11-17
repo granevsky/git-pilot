@@ -157,7 +157,7 @@ Run **Git Pilot: Set Personal Access Token** to save a token for your GitLab or 
 | Setting | Default | Description |
 | --- | --- | --- |
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. `"auto"` detects the platform from the remote hostname. Set explicitly for custom self-hosted domains. |
-| `gitPilot.instanceUrl` | `""` | Base URL override for self-hosted GitLab or GitHub Enterprise (e.g. `https://gitlab.company.com`, subpath instances like `https://host/gitlab` are supported). |
+| `gitPilot.instanceUrl` | `""` | User-level setting. Base URL override for self-hosted GitLab or GitHub Enterprise (e.g. `https://gitlab.company.com`, subpath instances like `https://host/gitlab` are supported). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Regular expression used to extract the issue number from the branch name (uses the **first capturing group**). |
 | `gitPilot.statusSync.showSection` | `true` | Show the **Issue & MR** section in the sidebar (always shown if **Labels** is disabled). |
 | `gitPilot.statusSync.showStatusBar` | `true` | Show the Issue / MR status item in the VS Code status bar. |
@@ -196,7 +196,8 @@ For build instructions and architecture overview, see [CONTRIBUTING.md](CONTRIBU
 Because a cloned repository controls its own remote URLs, branch names, and `.vscode/settings.json`, Git Pilot enforces strict boundaries around your token and API calls:
 
 - **Workspace Trust required** — the extension is disabled in Restricted Mode (`untrustedWorkspaces.supported: false`).
-- **Host-pinned tokens & HTTPS by default** — a token is sent only to the exact API origin it was saved for; cross-origin redirects are blocked. Plain HTTP is refused unless you explicitly enable the user-scoped `gitPilot.allowInsecureHttp` setting.
+- **Host-pinned tokens & HTTPS by default** — a token is kept in an isolated private field in memory and sent only to the exact API origin it was saved for; cross-origin redirects are blocked, and `github.com` / `gitlab.com` are pinned to their canonical platforms and API origins. Both `gitPilot.instanceUrl` and `gitPilot.allowInsecureHttp` are user-scoped (`machine`) settings, so a repository's `.vscode/settings.json` cannot redirect API requests or downgrade HTTPS.
+- **No credential leaks in logs** — tokens and embedded URL credentials (`user:token@`) are automatically redacted before any URL reaches the Output channel.
 - **Same-project scope** — MRs/PRs from external forks or other projects that mention your issue are ignored, and label writes target only the current repository.
 
 <sub>[↑ Contents](#en) · [Русский](#ru) · [↑ Top](#top)</sub>
@@ -353,7 +354,7 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
 | Параметр | По умолчанию | Описание |
 | --- | --- | --- |
 | `gitPilot.provider` | `"auto"` | `"auto"` \| `"gitlab"` \| `"github"`. В режиме `"auto"` платформа определяется по домену remote. Для корпоративных серверов с нестандартным доменом укажите явно. |
-| `gitPilot.instanceUrl` | `""` | Базовый URL для собственного инстанса GitLab или GitHub Enterprise (например, `https://gitlab.company.com`; поддерживаются и подпути вроде `https://host/gitlab`). |
+| `gitPilot.instanceUrl` | `""` | Только на уровне настроек пользователя. Базовый URL для собственного инстанса GitLab или GitHub Enterprise (например, `https://gitlab.company.com`; поддерживаются и подпути вроде `https://host/gitlab`). |
 | `gitPilot.branchIssueRegex` | `(?:^\|/\|-)(\d+)(?:-\|_\|$)` | Регулярное выражение для извлечения номера задачи из имени ветки (используется **первая группа захвата**). |
 | `gitPilot.statusSync.showSection` | `true` | Показывать раздел **Issue & MR** в боковой панели (если раздел **Labels** выключен, **Issue & MR** остаётся видимым всегда). |
 | `gitPilot.statusSync.showStatusBar` | `true` | Показывать индикатор задачи и MR/PR в строке состояния VS Code. |
@@ -392,7 +393,8 @@ ISSUE & MR · #3                                     [🏷] [+] [⇅] [⟳]
 Поскольку клонированный репозиторий может содержать произвольные remote URL, имена веток и локальный `.vscode/settings.json`, расширение изолирует работу с токенами и сетью:
 
 - **Только доверенные рабочие области (Workspace Trust)** — в ограниченном режиме (Restricted Mode) расширение не активируется (`untrustedWorkspaces.supported: false`).
-- **Привязка токена к хосту и обязательный HTTPS** — токен передаётся строго на тот API-хост, для которого он был сохранён; редиректы на другие домены блокируются. Незашифрованный HTTP по умолчанию запрещён и может быть включён только глобальной пользовательской настройкой `gitPilot.allowInsecureHttp`.
+- **Привязка токена к хосту и обязательный HTTPS** — в памяти токен хранится в изолированном приватном поле и передаётся строго на тот API-хост, для которого он был сохранён; редиректы на другие домены блокируются, а для `github.com` и `gitlab.com` жёстко зафиксированы платформа и адрес API. Настройки `gitPilot.instanceUrl` и `gitPilot.allowInsecureHttp` задаются только на уровне пользователя (`machine`), поэтому `.vscode/settings.json` внутри репозитория не может перенаправить запросы или понизить протокол до HTTP.
+- **Защита логов от утечки секретов** — токены и встроенные в URL учётные данные (`user:token@`) автоматически маскируются перед выводом в панель `Output`.
 - **Изоляция в рамках текущего проекта** — чужие MR/PR из других репозиториев, упоминающие вашу задачу, отфильтровываются, а любые изменения меток отправляются только в текущий проект.
 
 <sub>[↑ Содержание](#ru) · [English](#en) · [↑ В начало](#top)</sub>
