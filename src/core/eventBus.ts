@@ -18,6 +18,8 @@ export interface PilotEvents {
   branchChanged: BranchChangeEvent;
   configChanged: vscode.ConfigurationChangeEvent;
   authChanged: AuthChangeEvent;
+  /** The user pinned a repository or went back to following the active editor (the active repository may be the same). */
+  repoPinChanged: RepoContext | null;
   /**
    * Issue/MR state published by Label Sync after every sync or label change; `null` when the
    * current branch has no (loadable) issue any more.
@@ -37,6 +39,7 @@ export class EventBus implements vscode.Disposable {
     branchChanged: new vscode.EventEmitter(),
     configChanged: new vscode.EventEmitter(),
     authChanged: new vscode.EventEmitter(),
+    repoPinChanged: new vscode.EventEmitter(),
     syncStateChanged: new vscode.EventEmitter(),
   };
 
@@ -44,13 +47,24 @@ export class EventBus implements vscode.Disposable {
   readonly onDidChangeBranch = this.emitters.branchChanged.event;
   readonly onDidChangeConfig = this.emitters.configChanged.event;
   readonly onDidChangeAuth = this.emitters.authChanged.event;
+  readonly onDidChangeRepoPin = this.emitters.repoPinChanged.event;
   readonly onDidChangeSyncState = this.emitters.syncStateChanged.event;
+
+  private latestSyncState: SyncState | null = null;
+
+  /** Last published `syncStateChanged` payload, so modules activated later do not miss the first sync. */
+  get currentSyncState(): SyncState | null {
+    return this.latestSyncState;
+  }
 
   on<K extends keyof PilotEvents>(event: K, listener: (payload: PilotEvents[K]) => unknown): vscode.Disposable {
     return (this.emitters[event] as vscode.EventEmitter<PilotEvents[K]>).event(listener);
   }
 
   emit<K extends keyof PilotEvents>(event: K, payload: PilotEvents[K]): void {
+    if (event === 'syncStateChanged') {
+      this.latestSyncState = payload as SyncState | null;
+    }
     (this.emitters[event] as vscode.EventEmitter<PilotEvents[K]>).fire(payload);
   }
 

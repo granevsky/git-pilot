@@ -1,5 +1,53 @@
-import type { EntityRef, ProjectLabel, SyncState, User } from '../types';
+import { hasMediaLinks } from '../format';
+import type { CommentPage, EntityComment, EntityRef, ProjectLabel, SyncState, User } from '../types';
 import { BaseProvider, type EntityKind, ProviderError, isProviderError, labelDiff, stringLabels } from './baseProvider';
+
+const MAX_CURSOR_LENGTH = 512;
+
+interface GhIssueComment {
+  id: number;
+  body: string;
+  user: { login?: string } | null;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+}
+
+interface GqlComment {
+  databaseId: number | null;
+  author: { login?: string } | null;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+interface GqlComments {
+  repository: {
+    issue?: { comments: GqlCommentConnection } | null;
+    pullRequest?: { comments: GqlCommentConnection } | null;
+  } | null;
+}
+
+interface GqlCommentConnection {
+  nodes: Array<GqlComment | null> | null;
+  pageInfo: { hasPreviousPage: boolean; startCursor: string | null };
+}
+
+/** `last` / `before` = reverse pagination, so page 1 holds the newest comments. */
+function commentsQuery(field: 'issue' | 'pullRequest'): string {
+  return `
+query GitPilotComments($owner: String!, $name: String!, $number: Int!, $last: Int!, $before: String) {
+  repository(owner: $owner, name: $name) {
+    ${field}(number: $number) {
+      comments(last: $last, before: $before) {
+        nodes { databaseId author { login } body createdAt updatedAt url }
+        pageInfo { hasPreviousPage startCursor }
+      }
+    }
+  }
+}`;
+}
 
 // ----- GitHub REST v3 / GraphQL v4 payloads (only the fields we use) ----------
 
@@ -179,6 +227,76 @@ export class GitHubProvider extends BaseProvider {
 
   async getLabels(): Promise<ProjectLabel[]> {
     return this.toProjectLabels(await this.paginate<GhLabel>(`/repos/${this.repoRef}/labels`, { per_page: 100 }));
+  }
+
+  async getComments(entity: EntityRef, kind: EntityKind, limit: number, cursor?: string | null): Promise<CommentPage> {
+    const number = this.assertEntityId(entity, kind);
+    if (cursor && (typeof cursor !== 'string' || cursor.length > MAX_CURSOR_LENGTH)) {
+      throw new ProviderError('Invalid comments cursor', 'invalidRequest');
+    }
+    const field = kind === 'issue' ? 'issue' : 'pullRequest';
+    const data = await this.graphql<GqlComments>(commentsQuery(field), {
+      owner: this.owner,
+      name: this.repoName,
+      number,
+      last: Math.min(100, Math.max(1, Math.floor(limit))),
+      before: cursor || null,
+    });
+    const connection = data.repository?.[field]?.comments;
+    if (!connection) {
+      throw new ProviderError(`${kind === 'issue' ? 'Issue' : 'PR'} #${number} not found`, 'notFound');
+    }
+    // GitHub lists the page oldest-first; show it newest-first.
+    const comments = (connection.nodes ?? [])
+      .map((node) => this.gqlToComment(node, entity, kind))
+      .filter((c): c is EntityComment => c !== null)
+      .reverse();
+    const start = connection.pageInfo?.startCursor;
+    const more = connection.pageInfo?.hasPreviousPage === true && typeof start === 'string' && start.length > 0 && start.length <= MAX_CURSOR_LENGTH;
+    return { comments, nextCursor: more ? start : null };
+  }
+
+  async addComment(entity: EntityRef, kind: EntityKind, body: string): Promise<EntityComment> {
+    const number = this.assertEntityId(entity, kind);
+    const text = this.assertCommentBody(body);
+    // PRs share the issue comments endpoint on GitHub (this posts to the PR conversation).
+    const res = await this.request<GhIssueComment>('POST', `/repos/${this.repoRef}/issues/${number}/comments`, { body: { body: text } });
+    const raw = res.data;
+    const id = this.commentId(raw?.id);
+    if (!raw || !id) {
+      throw new ProviderError('Unexpected response while posting the comment', 'invalidResponse', res.status);
+    }
+    this.logger.info(`[github] Commented on ${kind === 'issue' ? 'issue' : 'PR'} #${number} (${text.length} chars)`);
+    return this.buildComment(id, raw.user?.login, raw.body, raw.created_at, raw.updated_at, raw.html_url, entity, kind);
+  }
+
+  private gqlToComment(node: GqlComment | null, entity: EntityRef, kind: EntityKind): EntityComment | null {
+    const id = node ? this.commentId(node.databaseId) : null;
+    return node && id ? this.buildComment(id, node.author?.login, node.body, node.createdAt, node.updatedAt, node.url, entity, kind) : null;
+  }
+
+  private buildComment(
+    id: string,
+    login: unknown,
+    body: unknown,
+    createdAt: unknown,
+    updatedAt: unknown,
+    url: unknown,
+    entity: EntityRef,
+    kind: EntityKind,
+  ): EntityComment {
+    const text = typeof body === 'string' ? body : '';
+    return {
+      id,
+      author: typeof login === 'string' && login ? login : 'ghost',
+      body: text,
+      createdAt: String(createdAt ?? ''),
+      updatedAt: String(updatedAt ?? createdAt ?? ''),
+      // Server-supplied links must be on this instance's web host; otherwise the Issue / PR page is used.
+      webUrl: this.safeWebUrl(url, `${this.projectPath}/${kind === 'issue' ? 'issues' : 'pull'}/${entity.id}`),
+      hasMedia: hasMediaLinks(text),
+      isPrivate: false,
+    };
   }
 
   protected async writeLabels(entity: EntityRef, _kind: EntityKind, currentLabels: string[], nextLabels: string[]): Promise<string[]> {

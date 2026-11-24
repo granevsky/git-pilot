@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { EventBus } from '../eventBus';
 import { redactUrl } from '../format';
 import type { Logger } from '../logger';
-import type { RemoteInfo, RepoContext } from '../types';
+import type { RemoteInfo, RepoContext, RepoSummary, RepositoryInfo } from '../types';
 import type { GitAPI, GitExtension, Remote, Repository } from './gitApi';
 
 // ---------------------------------------------------------------------------
@@ -109,10 +109,21 @@ interface Snapshot {
   remoteUrl: string | null;
 }
 
+const PINNED_REPO_KEY = 'gitPilot.pinnedRepository';
+const MAX_PINNED_KEY_LENGTH = 2048;
+
+function repoName(repo: Repository): string {
+  return repo.rootUri.path.split('/').filter(Boolean).pop() ?? repo.rootUri.fsPath;
+}
+
 /**
- * Bridges the built-in `vscode.git` extension. Tracks the "active" repository
- * (the one containing the focused editor, else the first one) and emits
+ * Bridges the built-in `vscode.git` extension. Tracks the "active" repository and emits
  * `repoChanged` / `branchChanged` on the EventBus.
+ *
+ * By default the active repository is the one containing the focused file editor (else the first
+ * one). With several repositories open the user can pin one ("Select Repository…"): it then stays
+ * active whatever file is focused. The pin is remembered per workspace; it is only ever compared with
+ * the roots of repositories that are currently open.
  */
 export class GitService implements vscode.Disposable {
   private api: GitAPI | undefined;
@@ -120,11 +131,17 @@ export class GitService implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly repoListeners = new Map<string, vscode.Disposable>();
   private snapshot: Snapshot = { root: null, branch: null, remoteUrl: null };
+  /** Root URI string of the pinned repository, or `null` to follow the active editor. */
+  private pinnedRoot: string | null;
 
   constructor(
     private readonly bus: EventBus,
     private readonly logger: Logger,
-  ) {}
+    private readonly store: vscode.Memento,
+  ) {
+    const saved = store.get<unknown>(PINNED_REPO_KEY);
+    this.pinnedRoot = typeof saved === 'string' && saved.length > 0 && saved.length <= MAX_PINNED_KEY_LENGTH ? saved : null;
+  }
 
   /** Resolves once the git API handle is obtained (does not wait for repository discovery). */
   async initialize(): Promise<void> {
@@ -192,6 +209,14 @@ export class GitService implements vscode.Disposable {
     if (!api) {
       return;
     }
+    // A pinned repository wins over the editor. While it is not open (not discovered yet, or closed)
+    // the pin is kept but the normal rules apply, so it takes over again as soon as it appears.
+    const pinned = this.pinnedRoot ? api.repositories.find((r) => r.rootUri.toString() === this.pinnedRoot) : undefined;
+    if (pinned) {
+      this.activeRepo = pinned;
+      this.evaluate();
+      return;
+    }
     const editorUri = vscode.window.activeTextEditor?.document.uri;
     const fromEditor = editorUri && editorUri.scheme === 'file' ? api.getRepository(editorUri) : null;
     if (fromEditor) {
@@ -200,6 +225,53 @@ export class GitService implements vscode.Disposable {
       this.activeRepo = api.repositories[0];
     }
     this.evaluate();
+  }
+
+  /** All open repositories (for "Select Repository…"). */
+  listRepositories(): RepositoryInfo[] {
+    return (this.api?.repositories ?? []).map((repo) => ({
+      key: repo.rootUri.toString(),
+      name: repoName(repo),
+      branch: repo.state.HEAD?.name ?? null,
+      projectPath: this.resolveRemote(repo)?.projectPath ?? null,
+      path: repo.rootUri.fsPath,
+    }));
+  }
+
+  /** Root of the pinned repository (even if it is not open right now), or `null` when following the editor. */
+  get pinnedKey(): string | null {
+    return this.pinnedRoot;
+  }
+
+  /** Short description of the active repository for section headers; `null` without one. */
+  getRepoSummary(): RepoSummary | null {
+    const repo = this.activeRepo;
+    if (!repo) {
+      return null;
+    }
+    return {
+      key: repo.rootUri.toString(),
+      name: repoName(repo),
+      branch: repo.state.HEAD?.name ?? null,
+      pinned: repo.rootUri.toString() === this.pinnedRoot,
+      repoCount: this.api?.repositories.length ?? 1,
+    };
+  }
+
+  /**
+   * Pins the open repository with this root URI, or (`null`) goes back to following the active editor.
+   * Unknown keys are ignored.
+   */
+  async pinRepository(key: string | null): Promise<void> {
+    const api = this.api;
+    if (!api || (key !== null && !api.repositories.some((r) => r.rootUri.toString() === key))) {
+      return;
+    }
+    this.pinnedRoot = key;
+    await this.store.update(PINNED_REPO_KEY, key ?? undefined);
+    this.logger.info(key ? `Repository pinned: ${key}` : 'Repository unpinned: following the active editor.');
+    this.refreshActiveRepository();
+    this.bus.emit('repoPinChanged', this.getRepoContext());
   }
 
   /** Compares the current state with the last snapshot and emits change events. */

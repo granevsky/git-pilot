@@ -29,6 +29,7 @@ export function registerCoreCommands(ctx: PilotContext): vscode.Disposable {
   return vscode.Disposable.from(
     vscode.commands.registerCommand('gitPilot.setToken', () => setToken(ctx)),
     vscode.commands.registerCommand('gitPilot.openInBrowser', () => openInBrowser(ctx)),
+    vscode.commands.registerCommand('gitPilot.selectRepository', () => selectRepository(ctx)),
     // Sidebar item action. Only nodes created by Git Pilot are honoured, so the command
     // cannot be abused (e.g. from a command: link) to open arbitrary URLs.
     vscode.commands.registerCommand('gitPilot.openItem', async (node: unknown) => {
@@ -39,6 +40,48 @@ export function registerCoreCommands(ctx: PilotContext): vscode.Disposable {
       }
     }),
   );
+}
+
+/**
+ * With several repositories open the sections follow the focused file's repository, which empties them
+ * when a file of an unrelated repository is open. This pins one repository (or goes back to following).
+ */
+async function selectRepository(ctx: PilotContext): Promise<void> {
+  const repos = ctx.gitService.listRepositories();
+  if (!repos.length) {
+    void vscode.window.showInformationMessage('Git Pilot: no git repository is open.');
+    return;
+  }
+  const pinnedKey = ctx.gitService.pinnedKey;
+  const current = ctx.gitService.getRepoSummary();
+  const items: Array<vscode.QuickPickItem & { key: string | null }> = [
+    {
+      label: '$(eye) Follow the active editor',
+      description: pinnedKey ? '' : '(current)',
+      detail: 'The sections show the repository of the file you are editing.',
+      key: null,
+    },
+    ...repos.map((repo) => ({
+      label: `$(${repo.key === pinnedKey ? 'pinned' : 'repo'}) ${repo.name}`,
+      description: [repo.branch ?? 'detached HEAD', repo.key === pinnedKey ? 'pinned' : !pinnedKey && repo.key === current?.key ? 'active' : '']
+        .filter(Boolean)
+        .join(' · '),
+      detail: repo.projectPath ?? repo.path,
+      key: repo.key,
+    })),
+  ];
+  const pick = await vscode.window.showQuickPick(items, {
+    title: 'Git Pilot: Select Repository',
+    placeHolder: 'Pin a repository, or follow the active editor',
+    matchOnDescription: true,
+    matchOnDetail: true,
+  });
+  if (!pick) {
+    return;
+  }
+  await ctx.gitService.pinRepository(pick.key);
+  const chosen = pick.key ? repos.find((r) => r.key === pick.key)?.name : undefined;
+  vscode.window.setStatusBarMessage(chosen ? `$(pinned) Git Pilot: pinned ${chosen}` : '$(eye) Git Pilot: following the active editor', 4000);
 }
 
 async function pickPlatform(host: string): Promise<Platform | undefined> {

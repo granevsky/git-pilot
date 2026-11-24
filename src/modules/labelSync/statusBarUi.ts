@@ -31,6 +31,7 @@ export const COMMANDS = {
   refresh: 'gitPilot.labelSync.refresh',
   syncFromMr: 'gitPilot.labelSync.syncFromMr',
   openInBrowser: 'gitPilot.openInBrowser',
+  selectRepository: 'gitPilot.selectRepository',
   applyStatus: 'gitPilot.labelSync.applyStatus',
   addLabel: 'gitPilot.labelSync.addLabel',
   removeLabel: 'gitPilot.labelSync.removeLabel',

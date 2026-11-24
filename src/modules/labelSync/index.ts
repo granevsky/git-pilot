@@ -55,6 +55,7 @@ export class LabelSyncModule implements PilotModule {
         masks: ctx.settings.labels.groups,
       }),
       () => this.catalog,
+      () => ctx.gitService.getRepoSummary(),
     ));
     const engine = (this.engine = new SyncEngine(ctx));
 
@@ -67,6 +68,8 @@ export class LabelSyncModule implements PilotModule {
       tree.view.onDidCollapseElement((e) => this.onAllLabelsToggled(e.element, false)),
       ctx.eventBus.onDidChangeRepo(() => this.invalidateCatalog()),
       ctx.eventBus.onDidChangeAuth(() => this.invalidateCatalog()),
+      // Pinning may keep the same repository active: only the header / hints change.
+      ctx.eventBus.onDidChangeRepoPin(() => this.render(engine.currentView)),
       vscode.commands.registerCommand(COMMANDS.selectStatus, () => this.selectStatus()),
       vscode.commands.registerCommand(COMMANDS.refresh, () => this.refresh()),
       vscode.commands.registerCommand(COMMANDS.copyName, (node: unknown) => this.copyLabelName(node)),
