@@ -3,7 +3,7 @@
 
 # Git Pilot — Development
 
-Technical notes for working on the extension source. User documentation is in [README.md](README.md).
+Developer guide and architecture notes. User documentation is in [README.md](README.md).
 
 **Language / Язык:** [English](#en) · [Русский](#ru)
 
@@ -24,18 +24,18 @@ Technical notes for working on the extension source. User documentation is in [R
 
 ### Development
 
-Requirements: Node.js 18+, pnpm, and VS Code 1.85 or later.
+Requirements: Node.js 18+, pnpm, and VS Code 1.85+.
 
 ```bash
 pnpm install
 pnpm run compile      # type-check + bundle to dist/extension.js
 pnpm run watch        # esbuild watch mode
-pnpm run package      # minified production bundle (clears dist/ first)
+pnpm run package      # minified production bundle (cleans dist/ first)
 ```
 
-Press **F5** ("Run Git Pilot") to launch an Extension Development Host. This runs the `watch` task: esbuild plus `tsc --noEmit` in watch mode. Both problem matchers are built in (an inline esbuild matcher in `.vscode/tasks.json` and the standard `$tsc-watch`), so no extra extensions are needed. "Run Git Pilot (one-off build)" does a single `pnpm run compile` instead of starting watchers.
+Press **F5** ("Run Git Pilot") to launch an Extension Development Host. This starts the `watch` task (esbuild + `tsc --noEmit` in watch mode). Problem matchers are configured in `.vscode/tasks.json`, so no extra VS Code extensions are required. Use "Run Git Pilot (one-off build)" for a single `pnpm run compile` without watchers.
 
-The runtime has **zero dependencies**. All REST and GraphQL calls use Node's built-in `fetch`.
+The extension has no runtime dependencies and uses Node's built-in `fetch` for all REST and GraphQL requests.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -43,7 +43,7 @@ The runtime has **zero dependencies**. All REST and GraphQL calls use Node's bui
 
 ### Architecture
 
-Git Pilot is a small core platform (API clients, git integration, auth, event bus) with feature modules plugged in on top. Each module may contribute its own sidebar section.
+Git Pilot consists of a shared core (`src/core/`) and independent feature modules (`src/modules/`).
 
 ```text
 src/
@@ -54,26 +54,26 @@ src/
 │   ├── logger.ts              "Git Pilot" log output channel
 │   ├── commands.ts            Core commands (setToken, openInBrowser, openItem, selectRepository)
 │   ├── format.ts              Shared text helpers (MR/PR terms, Markdown escaping, URL credential redaction)
-│   ├── labels.ts              Label groups (prefix / masks) and group exclusivity
-│   ├── ui/sectionView.ts      Sidebar section = TreeView over TreeNode roots
-│   ├── moduleRegistry.ts      Activates modules separately so one failing module can't break the others
-│   ├── config/settings.ts     Typed, validated access to settings
+│   ├── labels.ts              Label grouping (prefixes / masks) and group exclusivity
+│   ├── ui/sectionView.ts      Sidebar section wrapper (TreeView + TreeNode)
+│   ├── moduleRegistry.ts      Activates modules independently so a failure in one doesn't break the rest
+│   ├── config/settings.ts     Typed, validated settings reader
 │   ├── config/secrets.ts      Per-host PAT storage (SecretStorage)
-│   ├── git/gitService.ts      vscode.git integration, SSH/HTTPS remote parsing (nested subgroups)
+│   ├── git/gitService.ts      vscode.git integration, SSH/HTTPS remote parsing, repository pinning
 │   └── providers/
-│       ├── baseProvider.ts    fetch-based HTTP client, pagination, errors, scoped-label engine
-│       ├── gitlabProvider.ts  GitLab REST v4
-│       ├── githubProvider.ts  GitHub REST v3 + GraphQL v4
+│       ├── baseProvider.ts    HTTP client, pagination, error handling, scoped-label logic
+│       ├── gitlabProvider.ts  GitLab REST v4 client
+│       ├── githubProvider.ts  GitHub REST v3 + GraphQL v4 client
 │       └── providerManager.ts Resolves and caches the provider for the active repository
 └── modules/
-    ├── index.ts               Module list (add new modules here)
-    ├── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
-    └── comments/             index.ts · commentsTree.ts · commentDocs.ts
+    ├── index.ts               Registered feature modules
+    ├── labelSync/             Labels sidebar section, status bar item, and Issue <-> MR/PR sync
+    └── comments/              Comments sidebar section, read-only comment viewer, and draft composer
 ```
 
-The active repository is the one of the focused `file:` editor (else the first); `GitService.pinRepository()` pins one instead (`workspaceState`, compared only with the roots of open repositories; a pin for a repository that is not open is kept but ignored) and emits `repoPinChanged`. Sections read `gitService.getRepoSummary()` for headers / hints (`withRepoContext`, `repoHint` in `core/format.ts`).
-
-The **comments** module gets its Issue / MRs from `eventBus.currentSyncState` / `syncStateChanged` (published by `labelSync`), never by importing it. Providers implement the optional `getComments?` (newest first, system notes excluded: GitLab `sort=desc` + client-side `system` filter and `X-Next-Page` cursor; GitHub GraphQL `comments(last, before)`) and `addComment?`. Comment bodies are untrusted: they are shown only as plain text (`gitpilot-comment:` virtual documents) and permalinks go through `safeWebUrl`. By default a comment is typed in a one-line `InputBox` (`gitPilot.comments.compose`); longer ones go through untitled Markdown drafts tracked in `CommentsModule.composers`. Both paths end in `CommentsModule.post()`, which re-validates host / project / entity against the live state.
+- **Active repository & pinning:** `GitService` tracks the repository of the focused `file:` editor (falling back to the first open repository). `GitService.pinRepository()` pins a specific repository in `workspaceState` and emits `repoPinChanged`. Sidebar sections use `gitService.getRepoSummary()` to display the repository name when multiple repositories are open or one is pinned.
+- **Module communication:** modules do not import each other. For example, `comments` subscribes to `syncStateChanged` (and reads `eventBus.currentSyncState`) published by `labelSync` to know the current Issue and open MRs/PRs.
+- **Comments flow:** providers implement `getComments` (newest first, skipping system notes) and `addComment`. Opened comments are shown as plain text via the `gitpilot-comment:` virtual document provider (`CommentDocs`), and new comments are validated against the current host, project, and entity before posting.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -86,20 +86,16 @@ The **comments** module gets its Issue / MRs from `eventBus.currentSyncState` / 
 export class DailyIssuesModule implements PilotModule {
   readonly id = 'dailyIssues';
   activate(ctx: PilotContext) {
-    ctx.eventBus.onDidChangeRepo(/* … */);
-    // const res = await ctx.providerManager.resolve();
-    // if (res.status === 'ready') await res.provider.getAssignedIssues?.(['status: todo']);
+    ctx.eventBus.onDidChangeRepo(/* ... */);
   }
   dispose() {}
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new LabelSyncModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new LabelSyncModule(), () => new CommentsModule(), () => new DailyIssuesModule()];
 ```
 
-Modules don't call each other. They communicate only through the `EventBus` and the shared core services in `PilotContext`.
-
-To add a sidebar section, declare a view in `contributes.views.gitPilot` of `package.json` with `"when": "config.gitPilot.<moduleId>.enabled"`, then render it with `new SectionView('<viewId>')` and `TreeNode`s from `core/ui/sectionView.ts`. Item commands receive the `TreeNode`; trust only nodes (`instanceof TreeNode`) and keep tooltips plain text.
+To add a sidebar section, declare the view under `contributes.views.gitPilot` in `package.json` and create a `new SectionView('<viewId>')` with `TreeNode` items from `core/ui/sectionView.ts`. Item command handlers receive the `TreeNode` instance; always check `node instanceof TreeNode` and keep tooltips plain text.
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -107,7 +103,17 @@ To add a sidebar section, declare a view in `contributes.views.gitPilot` of `pac
 
 ### Internal commands
 
-Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`, `gitPilot.comments.open`, `gitPilot.comments.loadMore`. They act only on tree items created by Git Pilot. `gitPilot.comments.send` is visible in the Command Palette only while a comment draft is the active editor (context key `gitPilot.comments.composer`).
+Tree item commands hidden from the Command Palette (`when: "false"`):
+- `gitPilot.openItem`
+- `gitPilot.labelSync.applyStatus`
+- `gitPilot.labelSync.removeLabel`
+- `gitPilot.labelSync.replaceLabel`
+- `gitPilot.labelSync.copyLabelToOthers`
+- `gitPilot.labelSync.copyLabelName`
+- `gitPilot.comments.open`
+- `gitPilot.comments.loadMore`
+
+`gitPilot.comments.send` is shown in the Command Palette and editor title bar only when a comment draft is focused (`gitPilot.comments.composer`).
 
 <sub>[↑ Contents](#en) · [Русский](#ru)</sub>
 
@@ -115,9 +121,7 @@ Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `git
 
 ### Packaging
 
-`.vscodeignore` is an allow-list (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Package with `vsce package --no-dependencies` (pnpm layout, no runtime dependencies) and check the contents with `vsce ls --no-dependencies` before publishing.
-
-`README.md` is shown on the Marketplace, so keep it user-facing; technical notes belong in this file.
+`.vscodeignore` uses an explicit allow-list (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Build the `.vsix` archive with `vsce package --no-dependencies` and inspect its contents with `vsce ls --no-dependencies` before publishing.
 
 <sub>[↑ Contents](#en) · [Русский](#ru) · [↑ Top](#top)</sub>
 
@@ -130,26 +134,26 @@ Sidebar item actions, hidden from the Command Palette: `gitPilot.openItem`, `git
 **Содержание:**
 [Разработка](#ru-development) ·
 [Архитектура](#ru-architecture) ·
-[Как добавить модуль](#ru-adding-a-module) ·
-[Служебные команды](#ru-internal-commands) ·
-[Упаковка](#ru-packaging)
+[Добавление модуля](#ru-adding-a-module) ·
+[Внутренние команды](#ru-internal-commands) ·
+[Сборка пакета](#ru-packaging)
 
 <a id="ru-development"></a>
 
 ### Разработка
 
-Требования: Node.js 18+, pnpm и VS Code 1.85 или новее.
+Требования: Node.js 18+, pnpm и VS Code 1.85+.
 
 ```bash
 pnpm install
 pnpm run compile      # проверка типов + сборка в dist/extension.js
-pnpm run watch        # сборка esbuild в режиме наблюдения
-pnpm run package      # минифицированная production-сборка (сначала очищает dist/)
+pnpm run watch        # esbuild в режиме watch
+pnpm run package      # минифицированная production-сборка (с предварительной очисткой dist/)
 ```
 
-Нажмите **F5** («Run Git Pilot»), чтобы запустить Extension Development Host. Будет запущена задача `watch`: esbuild и `tsc --noEmit` в режиме наблюдения. Оба problem matcher'а встроены (собственный matcher для esbuild в `.vscode/tasks.json` и стандартный `$tsc-watch`), так что дополнительные расширения не нужны. Конфигурация «Run Git Pilot (one-off build)» вместо наблюдения один раз выполняет `pnpm run compile`.
+Нажмите **F5** («Run Git Pilot») для запуска Extension Development Host. При этом запускается задача `watch` (esbuild + `tsc --noEmit`). Все problem matcher'ы настроены в `.vscode/tasks.json`, сторонние расширения не требуются. Конфигурация «Run Git Pilot (one-off build)» выполняет разовую сборку `pnpm run compile` без фонового отслеживания файлов.
 
-Во время работы у расширения **нет ни одной зависимости**. Все REST- и GraphQL-запросы идут через встроенный в Node `fetch`.
+У расширения нет runtime-зависимостей — все запросы к REST и GraphQL API выполняются через встроенный в Node.js `fetch`.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
@@ -157,80 +161,84 @@ pnpm run package      # минифицированная production-сборка
 
 ### Архитектура
 
-Git Pilot состоит из небольшого ядра (API-клиенты, интеграция с git, аутентификация, шина событий) и подключаемых к нему функциональных модулей. Каждый модуль может добавить свой раздел в боковую панель.
+Проект разделён на общее ядро (`src/core/`) и независимые функциональные модули (`src/modules/`).
 
 ```text
 src/
-├── extension.ts               Точка входа: собирает PilotContext, регистрирует команды ядра, запускает модули
+├── extension.ts               Точка входа: создаёт PilotContext, регистрирует команды ядра, запускает модули
 ├── core/
-│   ├── types.ts               Доменные модели и контракты PilotModule / GitPlatformProvider
-│   ├── eventBus.ts            Типизированные события: repoChanged, branchChanged, configChanged, authChanged, repoPinChanged, syncStateChanged
-│   ├── logger.ts              Канал вывода «Git Pilot»
-│   ├── commands.ts            Команды ядра (setToken, openInBrowser, openItem, selectRepository)
-│   ├── format.ts              Общие текстовые хелперы (термины MR/PR, экранирование Markdown, маскирование секретов в URL)
-│   ├── labels.ts              Группы меток (префикс / маски) и их взаимоисключение
-│   ├── ui/sectionView.ts      Раздел боковой панели = TreeView над корнями TreeNode
-│   ├── moduleRegistry.ts      Запускает модули изолированно: сбой одного не ломает остальные
-│   ├── config/settings.ts     Типизированный доступ к настройкам с проверкой значений
-│   ├── config/secrets.ts      Хранение PAT по хостам (SecretStorage)
-│   ├── git/gitService.ts      Интеграция с vscode.git, разбор SSH/HTTPS remote (вложенные подгруппы)
+│   ├── types.ts               Доменные типы и интерфейсы PilotModule / GitPlatformProvider
+│   ├── eventBus.ts            События: repoChanged, branchChanged, configChanged, authChanged, repoPinChanged, syncStateChanged
+│   ├── logger.ts              Канал логов «Git Pilot»
+│   ├── commands.ts            Общие команды (setToken, openInBrowser, openItem, selectRepository)
+│   ├── format.ts              Форматирование текста, экранирование Markdown, маскирование секретов в URL
+│   ├── labels.ts              Группировка меток по префиксам/маскам и логика взаимоисключения
+│   ├── ui/sectionView.ts      Обёртка раздела боковой панели (TreeView + TreeNode)
+│   ├── moduleRegistry.ts      Изолированная активация модулей
+│   ├── config/settings.ts     Типизированное чтение и валидация настроек
+│   ├── config/secrets.ts      Хранение токенов по хостам в SecretStorage
+│   ├── git/gitService.ts      Интеграция с vscode.git, разбор SSH/HTTPS remote, закрепление репозитория
 │   └── providers/
-│       ├── baseProvider.ts    HTTP-клиент на fetch, пагинация, ошибки, логика scoped labels
-│       ├── gitlabProvider.ts  GitLab REST v4
-│       ├── githubProvider.ts  GitHub REST v3 + GraphQL v4
-│       └── providerManager.ts Выбирает и кэширует провайдер для активного репозитория
+│       ├── baseProvider.ts    HTTP-клиент, пагинация, обработка ошибок, движок scoped labels
+│       ├── gitlabProvider.ts  Клиент GitLab REST v4
+│       ├── githubProvider.ts  Клиент GitHub REST v3 + GraphQL v4
+│       └── providerManager.ts Выбор и кэширование провайдера для активного репозитория
 └── modules/
-    ├── index.ts               Список модулей (новые модули добавляются здесь)
-    ├── labelSync/            index.ts · syncEngine.ts · syncPlan.ts · statusBarUi.ts · labelsTree.ts · catalogTree.ts · labelPicker.ts
-    └── comments/             index.ts · commentsTree.ts · commentDocs.ts
+    ├── index.ts               Список активных модулей
+    ├── labelSync/             Раздел Labels, индикатор статус-бара и синхронизация Issue <-> MR/PR
+    └── comments/              Раздел Comments, просмотр комментариев и черновики ответов
 ```
 
-Активный репозиторий — репозиторий сфокусированного редактора со схемой `file:` (иначе первый); `GitService.pinRepository()` закрепляет репозиторий (`workspaceState`; значение сравнивается только с корнями открытых репозиториев, закрепление неоткрытого репозитория сохраняется, но игнорируется) и шлёт `repoPinChanged`. Разделы берут `gitService.getRepoSummary()` для заголовков и подсказок (`withRepoContext`, `repoHint` в `core/format.ts`).
-
-Модуль **comments** получает задачу и MR/PR из `eventBus.currentSyncState` / `syncStateChanged` (их публикует `labelSync`), не импортируя его. Провайдеры реализуют необязательные `getComments?` (сначала новые, без системных записей: в GitLab `sort=desc` + фильтр `system` на клиенте и курсор `X-Next-Page`; в GitHub GraphQL `comments(last, before)`) и `addComment?`. Тела комментариев — недоверенный текст: показываются только как простой текст (виртуальные документы `gitpilot-comment:`), а ссылки на комментарии проходят через `safeWebUrl`. По умолчанию комментарий вводится в однострочном `InputBox` (`gitPilot.comments.compose`); длинные идут через untitled Markdown-черновики, которые учитываются в `CommentsModule.composers`. Оба пути заканчиваются в `CommentsModule.post()`, который перепроверяет хост, проект и сущность по актуальному состоянию.
+- **Активный репозиторий и закрепление:** `GitService` определяет репозиторий по текущему открытому `file:`-редактору (или берёт первый открытый репозиторий). Метод `GitService.pinRepository()` сохраняет выбранный репозиторий в `workspaceState` и генерирует событие `repoPinChanged`. Для отображения имени репозитория в заголовках разделов используется `gitService.getRepoSummary()`.
+- **Взаимодействие модулей:** модули не импортируют друг друга напрямую. Например, модуль `comments` получает текущую задачу и список MR/PR через событие `syncStateChanged` (`eventBus.currentSyncState`), которое публикует `labelSync`.
+- **Работа с комментариями:** провайдеры реализуют методы `getComments` (сортировка от новых к старым, фильтрация системных записей) и `addComment`. Полный текст комментария открывается через виртуальные документы `gitpilot-comment:` (`CommentDocs`), а перед отправкой нового комментария проверяется соответствие хоста, проекта и задачи текущему состоянию.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
 <a id="ru-adding-a-module"></a>
 
-### Как добавить модуль
+### Добавление модуля
 
 ```ts
 // src/modules/dailyIssues/index.ts
 export class DailyIssuesModule implements PilotModule {
   readonly id = 'dailyIssues';
   activate(ctx: PilotContext) {
-    ctx.eventBus.onDidChangeRepo(/* … */);
-    // const res = await ctx.providerManager.resolve();
-    // if (res.status === 'ready') await res.provider.getAssignedIssues?.(['status: todo']);
+    ctx.eventBus.onDidChangeRepo(/* ... */);
   }
   dispose() {}
 }
 
 // src/modules/index.ts
-export const MODULES = [() => new LabelSyncModule(), () => new DailyIssuesModule()];
+export const MODULES = [() => new LabelSyncModule(), () => new CommentsModule(), () => new DailyIssuesModule()];
 ```
 
-Модули не вызывают друг друга напрямую. Они общаются только через `EventBus` и общие сервисы ядра из `PilotContext`.
-
-Чтобы добавить раздел в боковую панель, объявите представление в `contributes.views.gitPilot` файла `package.json` с `"when": "config.gitPilot.<moduleId>.enabled"` и отрисуйте его через `new SectionView('<viewId>')` и узлы `TreeNode` из `core/ui/sectionView.ts`. Команды элементов получают сам `TreeNode`; доверяйте только таким узлам (`instanceof TreeNode`) и оставляйте подсказки простым текстом.
+Чтобы добавить свой раздел в боковую панель, опишите view в `contributes.views.gitPilot` внутри `package.json` и создайте `new SectionView('<viewId>')` с узлами `TreeNode` из `core/ui/sectionView.ts`. В обработчиках команд элементов дерева проверяйте `node instanceof TreeNode`, а для тултипов используйте обычный текст.
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
 <a id="ru-internal-commands"></a>
 
-### Служебные команды
+### Внутренние команды
 
-Действия элементов боковой панели, скрытые из палитры команд: `gitPilot.openItem`, `gitPilot.labelSync.applyStatus`, `gitPilot.labelSync.removeLabel`, `gitPilot.labelSync.replaceLabel`, `gitPilot.labelSync.copyLabelToOthers`, `gitPilot.labelSync.copyLabelName`, `gitPilot.comments.open`, `gitPilot.comments.loadMore`. Они работают только с элементами дерева, созданными самим Git Pilot. `gitPilot.comments.send` виден в палитре команд только пока активный редактор — черновик комментария (context key `gitPilot.comments.composer`).
+Команды для действий над элементами дерева (скрыты из палитры команд через `when: "false"`):
+- `gitPilot.openItem`
+- `gitPilot.labelSync.applyStatus`
+- `gitPilot.labelSync.removeLabel`
+- `gitPilot.labelSync.replaceLabel`
+- `gitPilot.labelSync.copyLabelToOthers`
+- `gitPilot.labelSync.copyLabelName`
+- `gitPilot.comments.open`
+- `gitPilot.comments.loadMore`
+
+Команда `gitPilot.comments.send` отображается в палитре команд и в заголовке редактора только тогда, когда открыта вкладка с черновиком комментария (`gitPilot.comments.composer`).
 
 <sub>[↑ Содержание](#ru) · [English](#en)</sub>
 
 <a id="ru-packaging"></a>
 
-### Упаковка
+### Сборка пакета
 
-`.vscodeignore` — белый список (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Собирайте пакет командой `vsce package --no-dependencies` (раскладка pnpm, зависимостей во время работы нет) и перед публикацией проверьте состав через `vsce ls --no-dependencies`.
-
-`README.md` показывается в Marketplace, поэтому в нём только пользовательская документация; техническая информация — в этом файле.
+В `.vscodeignore` задан белый список файлов (`dist/extension.js`, `media/`, `README.md`, `CHANGELOG.md`, `LICENSE.md`, `package.json`). Упаковка выполняется командой `vsce package --no-dependencies`, проверить список файлов в пакете перед публикацией можно через `vsce ls --no-dependencies`.
 
 <sub>[↑ Содержание](#ru) · [English](#en) · [↑ В начало](#top)</sub>
